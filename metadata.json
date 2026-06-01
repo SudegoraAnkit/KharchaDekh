@@ -1,0 +1,6 @@
+{
+  "name": "KharchaDekh",
+  "description": "Smart, automated on-device expense manager for India parsing financial SMS messages locally with category dashboards.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

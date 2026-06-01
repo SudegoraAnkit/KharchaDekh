@@ -1,0 +1,199 @@
+package com.example
+
+import android.os.Bundle
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.viewModels
+import androidx.compose.foundation.layout.*
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.example.ui.screens.*
+import com.example.ui.theme.MyApplicationTheme
+import com.example.viewmodel.*
+
+enum class AppTab {
+    DASHBOARD, ADD_MANUAL, CATEGORIES, SETTINGS
+}
+
+class MainActivity : ComponentActivity() {
+
+    private val viewModel: ExpenseViewModel by viewModels {
+        ExpenseViewModel.Factory(application)
+    }
+
+    private val activeEnrichIdState = mutableStateOf<Long?>(null)
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        enableEdgeToEdge()
+
+        // Handle initial notification click intent
+        handleIntentRouting(intent)
+
+        setContent {
+            MyApplicationTheme {
+                val onboardingState by viewModel.onboardingState.collectAsStateWithLifecycle()
+
+                if (onboardingState == OnboardingState.Required) {
+                    OnboardingScreen(
+                        onConsentGranted = { 
+                            viewModel.completeOnboarding(true) 
+                        },
+                        onManualOnlyClicked = { 
+                            viewModel.completeOnboarding(false) 
+                        }
+                    )
+                } else {
+                    MainAppScaffold()
+                }
+            }
+        }
+    }
+
+    override fun onNewIntent(intent: android.content.Intent) {
+        super.onNewIntent(intent)
+        handleIntentRouting(intent)
+    }
+
+    private fun handleIntentRouting(intent: android.content.Intent?) {
+        val enrichId = intent?.getLongExtra("EXTRA_TRANSACTION_ID", -1L) ?: -1L
+        if (enrichId != -1L) {
+            activeEnrichIdState.value = enrichId
+        }
+    }
+
+    @Composable
+    fun MainAppScaffold() {
+        var currentTab by remember { mutableStateOf(AppTab.DASHBOARD) }
+        val activeEnrichId by activeEnrichIdState
+
+        val analytics by viewModel.analyticsState.collectAsStateWithLifecycle()
+        val pendingTransactions by viewModel.pendingTransactions.collectAsStateWithLifecycle()
+        val allTransactions by viewModel.allTransactions.collectAsStateWithLifecycle()
+        val categories by viewModel.allCategories.collectAsStateWithLifecycle()
+        val selectedFilter by viewModel.timeboxFilter.collectAsStateWithLifecycle()
+        val rHour by viewModel.reminderHour.collectAsStateWithLifecycle()
+        val rMinute by viewModel.reminderMinute.collectAsStateWithLifecycle()
+
+        if (activeEnrichId != null) {
+            EnrichmentScreen(
+                transactionId = activeEnrichId!!,
+                categories = categories,
+                onGetTransaction = { id -> viewModel.getTransactionById(id) },
+                onFinalizeTransaction = { id, catId, notes, amount, merchant, type ->
+                    viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type)
+                    activeEnrichIdState.value = null // Close enriching panel
+                },
+                onNavigateBack = {
+                    activeEnrichIdState.value = null
+                }
+            )
+        } else {
+            Scaffold(
+                bottomBar = {
+                    NavigationBar(
+                        windowInsets = WindowInsets.navigationBars
+                    ) {
+                        NavigationBarItem(
+                            selected = currentTab == AppTab.DASHBOARD,
+                            onClick = { currentTab = AppTab.DASHBOARD },
+                            label = { Text("Feed & Insights") },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentTab == AppTab.DASHBOARD) Icons.Filled.PieChart else Icons.Outlined.PieChart,
+                                    contentDescription = "Dashboard"
+                                )
+                            }
+                        )
+                        NavigationBarItem(
+                            selected = currentTab == AppTab.ADD_MANUAL,
+                            onClick = { currentTab = AppTab.ADD_MANUAL },
+                            label = { Text("Log Cash") },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentTab == AppTab.ADD_MANUAL) Icons.Filled.AddCircle else Icons.Outlined.AddCircle,
+                                    contentDescription = "Log Cash"
+                                )
+                            }
+                        )
+                        NavigationBarItem(
+                            selected = currentTab == AppTab.CATEGORIES,
+                            onClick = { currentTab = AppTab.CATEGORIES },
+                            label = { Text("Categories") },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentTab == AppTab.CATEGORIES) Icons.Filled.Category else Icons.Outlined.Category,
+                                    contentDescription = "Categories"
+                                )
+                            }
+                        )
+                        NavigationBarItem(
+                            selected = currentTab == AppTab.SETTINGS,
+                            onClick = { currentTab = AppTab.SETTINGS },
+                            label = { Text("Settings") },
+                            icon = {
+                                Icon(
+                                    imageVector = if (currentTab == AppTab.SETTINGS) Icons.Filled.Settings else Icons.Outlined.Settings,
+                                    contentDescription = "Settings"
+                                )
+                            }
+                        )
+                    }
+                },
+                modifier = Modifier.fillMaxSize()
+            ) { innerPadding ->
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(innerPadding)
+                ) {
+                    when (currentTab) {
+                        AppTab.DASHBOARD -> {
+                            DashboardScreen(
+                                analytics = analytics,
+                                pendingTransactions = pendingTransactions,
+                                allTransactions = allTransactions,
+                                selectedFilter = selectedFilter,
+                                onFilterSelected = { filter -> viewModel.setTimeboxFilter(filter) },
+                                onEnrichTransaction = { id -> activeEnrichIdState.value = id },
+                                onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) }
+                            )
+                        }
+                        AppTab.ADD_MANUAL -> {
+                            AddManualScreen(
+                                categories = categories,
+                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date ->
+                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date)
+                                    currentTab = AppTab.DASHBOARD // navigate back automatically
+                                },
+                                onNavigateBack = { currentTab = AppTab.DASHBOARD }
+                            )
+                        }
+                        AppTab.CATEGORIES -> {
+                            CategoriesScreen(
+                                categories = categories,
+                                onAddCategory = { name, icon -> viewModel.addCustomCategory(name, icon) },
+                                onDeleteCategory = { cat -> viewModel.deleteCategory(cat) }
+                            )
+                        }
+                        AppTab.SETTINGS -> {
+                            SettingsScreen(
+                                currentHour = rHour,
+                                currentMinute = rMinute,
+                                onUpdateTime = { h, m -> viewModel.updateReminderTime(h, m) },
+                                onResetOnboarding = { viewModel.resetOnboarding() },
+                                onSimulateSms = { body -> viewModel.simulateSmsTransaction(body) }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
