@@ -24,9 +24,10 @@ import androidx.compose.ui.unit.sp
 
 @Composable
 fun OnboardingScreen(
-    onConsentGranted: (Boolean) -> Unit,
+    onConsentGranted: (String) -> Unit,
     onManualOnlyClicked: () -> Unit
 ) {
+    var nameInput by remember { mutableStateOf("") }
     var termsAccepted by remember { mutableStateOf(false) }
 
     Box(
@@ -117,7 +118,7 @@ fun OnboardingScreen(
                     ConsentBullet(
                         icon = Icons.Default.VisibilityOff,
                         title = "100% Local Processing",
-                        description = "All bank SMS alerts are parsed directly on your phone. No logins, no internet required, and no data leaves your device."
+                        description = "All transaction alerts are parsed locally on your phone. No logins, no internet required, and no data leaves your device."
                     )
                     
                     Spacer(modifier = Modifier.height(14.dp))
@@ -125,7 +126,7 @@ fun OnboardingScreen(
                     ConsentBullet(
                         icon = Icons.Default.FilterList,
                         title = "Smart Strict Filter",
-                        description = "We ignore standard 10-digit personal phone numbers. Only alphanumeric business sender headers (e.g., AD-HDFCBK) are scanned."
+                        description = "We filter notifications to read only transactional alerts from banking and payment apps (e.g., Google Pay, Paytm, HDFC, SBI)."
                     )
 
                     Spacer(modifier = Modifier.height(14.dp))
@@ -134,6 +135,38 @@ fun OnboardingScreen(
                         icon = Icons.Default.VerifiedUser,
                         title = "Full Data Control",
                         description = "You can view, edit, search, or completely wipe your financial transactional database history at any time from your settings."
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+
+            // User Name Input Box
+            Card(
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surface
+                ),
+                shape = RoundedCornerShape(20.dp),
+                border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "Customize Your Profile",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    OutlinedTextField(
+                        value = nameInput,
+                        onValueChange = { nameInput = it },
+                        label = { Text("Your Name (Optional)") },
+                        placeholder = { Text("e.g. Rahul") },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("name_input")
                     )
                 }
             }
@@ -156,7 +189,7 @@ fun OnboardingScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "I explicitly consent to allow SMS reading, and agree to store transaction histories locally in compliance with Indian privacy acts.",
+                        text = "I explicitly consent to grant Notification Access, and agree to store transaction histories locally in compliance with Indian privacy acts.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onBackground
                     )
@@ -166,7 +199,7 @@ fun OnboardingScreen(
 
                 // Action choices
                 Button(
-                    onClick = { onConsentGranted(true) },
+                    onClick = { onConsentGranted(nameInput.ifBlank { "User" }) },
                     enabled = termsAccepted,
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
@@ -178,7 +211,7 @@ fun OnboardingScreen(
                     )
                 ) {
                     Text(
-                        text = "I Explicitly Consent & Setup SMS Tracker",
+                        text = "I Explicitly Consent & Setup Tracker",
                         style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                     )
                 }

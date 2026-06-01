@@ -81,7 +81,7 @@ class ReminderWorker(
     companion object {
         private const val REMINDER_WORK_NAME = "kharchadekh_daily_reminder"
 
-        fun scheduleDailyReminder(context: Context, hour: Int = 20, minute: Int = 30) {
+        fun scheduleDailyReminder(context: Context, hour: Int = 20, minute: Int = 30, forceRestart: Boolean = false) {
             val workManager = WorkManager.getInstance(context)
 
             // Calculate initial delay until target time today, or tomorrow if target already passed today
@@ -107,12 +107,14 @@ class ReminderWorker(
                 .setConstraints(constraints)
                 .build()
 
+            val policy = if (forceRestart) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP
+
             workManager.enqueueUniquePeriodicWork(
                 REMINDER_WORK_NAME,
-                ExistingPeriodicWorkPolicy.UPDATE,
+                policy,
                 request
             )
-            Log.d("ReminderWorker", "Scheduled daily reminder for $hour:$minute. Initial delay in mins: ${initialDelay / 60000}")
+            Log.d("ReminderWorker", "Scheduled daily reminder for $hour:$minute. Policy: $policy. Initial delay in mins: ${initialDelay / 60000}")
         }
         
         fun cancelReminder(context: Context) {

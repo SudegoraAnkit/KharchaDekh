@@ -39,10 +39,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyApplicationTheme {
                 val onboardingState by viewModel.onboardingState.collectAsStateWithLifecycle()
+                val userName by viewModel.userName.collectAsStateWithLifecycle()
 
                 if (onboardingState == OnboardingState.Required) {
                     OnboardingScreen(
-                        onConsentGranted = { 
+                        onConsentGranted = { name ->
+                            viewModel.updateUserName(name)
                             viewModel.completeOnboarding(true) 
                         },
                         onManualOnlyClicked = { 
@@ -80,6 +82,7 @@ class MainActivity : ComponentActivity() {
         val selectedFilter by viewModel.timeboxFilter.collectAsStateWithLifecycle()
         val rHour by viewModel.reminderHour.collectAsStateWithLifecycle()
         val rMinute by viewModel.reminderMinute.collectAsStateWithLifecycle()
+        val userName by viewModel.userName.collectAsStateWithLifecycle()
         
         // Collect active recurring schedules Flow
         val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -106,7 +109,7 @@ class MainActivity : ComponentActivity() {
                         NavigationBarItem(
                             selected = currentTab == AppTab.DASHBOARD,
                             onClick = { currentTab = AppTab.DASHBOARD },
-                            label = { Text("Feed & Insights") },
+                            label = { Text("Feed") },
                             icon = {
                                 Icon(
                                     imageVector = if (currentTab == AppTab.DASHBOARD) Icons.Filled.PieChart else Icons.Outlined.PieChart,
@@ -159,6 +162,7 @@ class MainActivity : ComponentActivity() {
                     when (currentTab) {
                         AppTab.DASHBOARD -> {
                             DashboardScreen(
+                                userName = userName,
                                 analytics = analytics,
                                 pendingTransactions = pendingTransactions,
                                 allTransactions = allTransactions,
@@ -190,6 +194,8 @@ class MainActivity : ComponentActivity() {
                         }
                         AppTab.SETTINGS -> {
                             SettingsScreen(
+                                userName = userName,
+                                onUpdateUserName = { name -> viewModel.updateUserName(name) },
                                 currentHour = rHour,
                                 currentMinute = rMinute,
                                 onUpdateTime = { h, m -> viewModel.updateReminderTime(h, m) },

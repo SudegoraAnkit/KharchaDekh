@@ -108,8 +108,8 @@ fun EnrichmentScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = if (existingTransaction?.source == "SMS") {
-                        "Automated SMS"
+                    text = if (existingTransaction?.source == "SMS" || existingTransaction?.source == "NOTIFICATION") {
+                        "Automated Alert"
                     } else if (existingTransaction?.source == "RECURRING") {
                         "Scheduled Item"
                     } else {

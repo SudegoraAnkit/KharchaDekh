@@ -28,6 +28,7 @@ import com.example.viewmodel.TimeboxFilter
 
 @Composable
 fun DashboardScreen(
+    userName: String,
     analytics: AnalyticsState,
     pendingTransactions: List<TransactionWithCategory>,
     allTransactions: List<TransactionWithCategory>,
@@ -38,6 +39,14 @@ fun DashboardScreen(
     onDeleteTransaction: (com.example.data.Transaction) -> Unit,
     onNavigateToCategories: () -> Unit
 ) {
+    val initials = remember(userName) {
+        userName.split(" ")
+            .filter { it.isNotBlank() }
+            .take(2)
+            .joinToString("") { it.first().uppercase() }
+            .ifEmpty { "U" }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -65,7 +74,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Namaste, Rahul",
+                        text = "Namaste, $userName",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
@@ -85,7 +94,7 @@ fun DashboardScreen(
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "NEW SMS",
+                                text = "NEW ALERT",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onErrorContainer
@@ -102,7 +111,7 @@ fun DashboardScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "RK",
+                            text = initials,
                             color = Color.White,
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                         )
@@ -299,12 +308,15 @@ fun BudgetTrackingSection(
                             color = MaterialTheme.colorScheme.secondary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
-                        Text(
-                            text = "Tap 'Manage' above to set spending budgets.",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { onNavigateToCategories() }
-                        )
+                        TextButton(
+                            onClick = onNavigateToCategories
+                        ) {
+                            Text(
+                                text = "Tap here to set spending budgets",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             } else {
@@ -665,6 +677,7 @@ fun PendingReviewCard(
     onDeleteClicked: () -> Unit
 ) {
     Card(
+        onClick = onVerifyClicked,
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
@@ -672,7 +685,6 @@ fun PendingReviewCard(
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.15f)),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onVerifyClicked() }
             .testTag("pending_item_card")
     ) {
         Row(
@@ -776,13 +788,13 @@ fun TransactionListItem(
     }
 
     Card(
+        onClick = onEditClicked,
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onEditClicked() }
             .testTag("transaction_item_${item.transaction.id}")
     ) {
         Row(

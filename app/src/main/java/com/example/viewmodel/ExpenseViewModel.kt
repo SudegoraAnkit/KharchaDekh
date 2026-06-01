@@ -78,10 +78,21 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val _reminderMinute = MutableStateFlow(prefs.getInt("reminder_minute", 30))
     val reminderMinute: StateFlow<Int> = _reminderMinute.asStateFlow()
 
+    // User profile name
+    private val _userName = MutableStateFlow(prefs.getString("user_name", "User") ?: "User")
+    val userName: StateFlow<String> = _userName.asStateFlow()
+
+    fun updateUserName(name: String) {
+        val trimmed = name.trim()
+        val finalName = if (trimmed.isBlank()) "User" else trimmed
+        _userName.value = finalName
+        prefs.edit().putString("user_name", finalName).apply()
+    }
+
     init {
-        // Schedule daily reminders as per saved time on init
+        // Schedule daily reminders as per saved time on init (without resetting current delay)
         if (_onboardingState.value == OnboardingState.Completed) {
-            setupWorkReminder()
+            setupWorkReminder(forceRestart = false)
         }
         viewModelScope.launch {
             processRecurringSchedules()
@@ -313,8 +324,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 merchant = merchant,
                 paymentMethod = if (type == "DEBIT") "UPI" else "NETBANKING",
                 isPending = true,
-                source = "SMS",
-                smsSenderId = "TM-SIMULATED",
+                source = "NOTIFICATION",
+                smsSenderId = "ALERT-SIMULATED",
                 timestamp = System.currentTimeMillis()
             )
             val id = repository.insertTransaction(transaction)
@@ -349,7 +360,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
             val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
                 .setSmallIcon(android.R.drawable.stat_sys_warning)
-                .setContentTitle("Simulated SMS Auto-Parsed")
+                .setContentTitle("Simulated Alert Auto-Parsed")
                 .setContentText("$label ₹$amount at $merchant? Tap to categorize it. $emoji")
                 .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
                 .setAutoCancel(true)
@@ -386,14 +397,15 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             .putInt("reminder_hour", hour)
             .putInt("reminder_minute", minute)
             .apply()
-        setupWorkReminder()
+        setupWorkReminder(forceRestart = true)
     }
 
-    private fun setupWorkReminder() {
+    private fun setupWorkReminder(forceRestart: Boolean = false) {
         ReminderWorker.scheduleDailyReminder(
             getApplication(),
             _reminderHour.value,
-            _reminderMinute.value
+            _reminderMinute.value,
+            forceRestart
         )
     }
 
