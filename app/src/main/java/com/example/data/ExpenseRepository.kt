@@ -4,7 +4,8 @@ import kotlinx.coroutines.flow.Flow
 
 class ExpenseRepository(
     private val transactionDao: TransactionDao,
-    private val categoryDao: CategoryDao
+    private val categoryDao: CategoryDao,
+    private val recurringScheduleDao: RecurringScheduleDao
 ) {
     val allTransactions: Flow<List<TransactionWithCategory>> =
         transactionDao.getAllTransactionsWithCategoryFlow()
@@ -14,6 +15,25 @@ class ExpenseRepository(
 
     val allCategories: Flow<List<Category>> =
         categoryDao.getAllCategoriesFlow()
+
+    val allSchedules: Flow<List<RecurringSchedule>> =
+        recurringScheduleDao.getAllSchedulesFlow()
+
+    suspend fun getActiveSchedules(): List<RecurringSchedule> {
+        return recurringScheduleDao.getActiveSchedules()
+    }
+
+    suspend fun insertSchedule(schedule: RecurringSchedule): Long {
+        return recurringScheduleDao.insertSchedule(schedule)
+    }
+
+    suspend fun updateSchedule(schedule: RecurringSchedule) {
+        recurringScheduleDao.updateSchedule(schedule)
+    }
+
+    suspend fun deleteSchedule(schedule: RecurringSchedule) {
+        recurringScheduleDao.deleteSchedule(schedule)
+    }
 
     suspend fun getTransactionById(id: Long): Transaction? {
         return transactionDao.getTransactionById(id)
@@ -45,6 +65,10 @@ class ExpenseRepository(
 
     suspend fun insertCategory(category: Category): Long {
         return categoryDao.insertCategory(category)
+    }
+
+    suspend fun updateCategory(category: Category) {
+        categoryDao.updateCategory(category)
     }
 
     suspend fun deleteCategory(category: Category) {

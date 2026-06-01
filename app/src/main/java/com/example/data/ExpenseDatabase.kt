@@ -14,7 +14,8 @@ data class Category(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val iconResName: String, // String representation for the icon mapping
-    val isCustom: Boolean = false
+    val isCustom: Boolean = false,
+    val budgetLimit: Double? = null
 )
 
 @Entity(
@@ -53,6 +54,32 @@ data class TransactionWithCategory(
     val category: Category?
 )
 
+@Entity(
+    tableName = "recurring_schedules",
+    foreignKeys = [
+        ForeignKey(
+            entity = Category::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.SET_NULL
+        )
+    ],
+    indices = [Index(value = ["categoryId"])]
+)
+data class RecurringSchedule(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val amount: Double,
+    val type: String,
+    val merchant: String,
+    val categoryId: Long? = null,
+    val notes: String? = null,
+    val paymentMethod: String,
+    val frequency: String, // DAILY, WEEKLY, MONTHLY, YEARLY
+    val lastTriggered: Long,
+    val nextTriggerTime: Long,
+    val isActive: Boolean = true
+)
+
 @Dao
 interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY isCustom ASC, id ASC")
@@ -63,6 +90,9 @@ interface CategoryDao {
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: Category): Long
+
+    @Update
+    suspend fun updateCategory(category: Category)
 
     @Delete
     suspend fun deleteCategory(category: Category)
@@ -97,10 +127,29 @@ interface TransactionDao {
     suspend fun deleteTransaction(transaction: Transaction)
 }
 
-@Database(entities = [Category::class, Transaction::class], version = 1, exportSchema = false)
+@Dao
+interface RecurringScheduleDao {
+    @Query("SELECT * FROM recurring_schedules ORDER BY id DESC")
+    fun getAllSchedulesFlow(): Flow<List<RecurringSchedule>>
+
+    @Query("SELECT * FROM recurring_schedules WHERE isActive = 1")
+    suspend fun getActiveSchedules(): List<RecurringSchedule>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSchedule(schedule: RecurringSchedule): Long
+
+    @Update
+    suspend fun updateSchedule(schedule: RecurringSchedule)
+
+    @Delete
+    suspend fun deleteSchedule(schedule: RecurringSchedule)
+}
+
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
+    abstract fun recurringScheduleDao(): RecurringScheduleDao
 
     companion object {
         @Volatile
@@ -113,24 +162,25 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
+                .fallbackToDestructiveMigration()
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
                         // Seed default categories
                         val defaults = listOf(
-                            "('Food & Dining', 'restaurant', 0)",
-                            "('Groceries', 'shopping_cart', 0)",
-                            "('Rent & Maintenance', 'home', 0)",
-                            "('Fuel & Travel', 'directions_car', 0)",
-                            "('Shopping', 'shopping_bag', 0)",
-                            "('Bills & Utilities', 'receipt_long', 0)",
-                            "('Entertainment', 'movie', 0)",
-                            "('Health & Medical', 'medical_services', 0)",
-                            "('EMI & Loans', 'account_balance', 0)",
-                            "('Others', 'category', 0)"
+                            "('Food & Dining', 'restaurant', 0, NULL)",
+                            "('Groceries', 'shopping_cart', 0, NULL)",
+                            "('Rent & Maintenance', 'home', 0, NULL)",
+                            "('Fuel & Travel', 'directions_car', 0, NULL)",
+                            "('Shopping', 'shopping_bag', 0, NULL)",
+                            "('Bills & Utilities', 'receipt_long', 0, NULL)",
+                            "('Entertainment', 'movie', 0, NULL)",
+                            "('Health & Medical', 'medical_services', 0, NULL)",
+                            "('EMI & Loans', 'account_balance', 0, NULL)",
+                            "('Others', 'category', 0, NULL)"
                         )
                         defaults.forEach { values ->
-                            db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom) VALUES $values")
+                            db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES $values")
                         }
                     }
                 })

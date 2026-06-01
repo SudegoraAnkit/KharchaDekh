@@ -37,7 +37,7 @@ data class AnalyticsState(
 class ExpenseViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
-    private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao())
+    private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao(), db.recurringScheduleDao())
     private val prefs = application.getSharedPreferences("kharchadekh_prefs", Context.MODE_PRIVATE)
 
     // Onboarding DPDP consent state
@@ -54,6 +54,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val allCategories: StateFlow<List<Category>> = repository.allCategories
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allSchedules: StateFlow<List<RecurringSchedule>> = repository.allSchedules
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     // UI state for filter tab selection
@@ -80,6 +83,52 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         if (_onboardingState.value == OnboardingState.Completed) {
             setupWorkReminder()
         }
+        viewModelScope.launch {
+            processRecurringSchedules()
+        }
+    }
+
+    private suspend fun processRecurringSchedules() {
+        val schedules = repository.getActiveSchedules()
+        val now = System.currentTimeMillis()
+        schedules.forEach { s ->
+            var nextTime = s.nextTriggerTime
+            var updatedSchedule = s
+            while (now >= nextTime) {
+                val transaction = Transaction(
+                    amount = s.amount,
+                    type = s.type,
+                    merchant = s.merchant,
+                    categoryId = s.categoryId,
+                    notes = s.notes ?: "Scheduled payment auto-trigger",
+                    timestamp = nextTime,
+                    paymentMethod = s.paymentMethod,
+                    isPending = true,  // Requires manual review
+                    source = "RECURRING"
+                )
+                repository.insertTransaction(transaction)
+
+                val prevTime = nextTime
+                nextTime = calculateNextTriggerTime(s.frequency, prevTime)
+                updatedSchedule = updatedSchedule.copy(lastTriggered = prevTime, nextTriggerTime = nextTime)
+            }
+            if (updatedSchedule != s) {
+                repository.updateSchedule(updatedSchedule)
+            }
+        }
+    }
+
+    private fun calculateNextTriggerTime(frequency: String, fromTime: Long): Long {
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = fromTime
+        when (frequency.uppercase()) {
+            "DAILY" -> cal.add(Calendar.DAY_OF_YEAR, 1)
+            "WEEKLY" -> cal.add(Calendar.WEEK_OF_YEAR, 1)
+            "MONTHLY" -> cal.add(Calendar.MONTH, 1)
+            "YEARLY" -> cal.add(Calendar.YEAR, 1)
+            else -> cal.add(Calendar.MONTH, 1)
+        }
+        return cal.timeInMillis
     }
 
     fun completeOnboarding(consent: Boolean) {
@@ -100,6 +149,52 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _timeboxFilter.value = filter
     }
 
+    fun updateCategoryBudget(category: Category, budgetLimit: Double?) {
+        viewModelScope.launch {
+            repository.updateCategory(category.copy(budgetLimit = budgetLimit))
+        }
+    }
+
+    fun addRecurringSchedule(
+        amount: Double,
+        type: String,
+        merchant: String,
+        categoryId: Long?,
+        notes: String?,
+        paymentMethod: String,
+        frequency: String
+    ) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val nextTime = calculateNextTriggerTime(frequency, now)
+            val schedule = RecurringSchedule(
+                amount = amount,
+                type = type,
+                merchant = merchant,
+                categoryId = categoryId,
+                notes = notes,
+                paymentMethod = paymentMethod,
+                frequency = frequency.uppercase(),
+                lastTriggered = now,
+                nextTriggerTime = nextTime,
+                isActive = true
+            )
+            repository.insertSchedule(schedule)
+        }
+    }
+
+    fun deleteRecurringSchedule(schedule: RecurringSchedule) {
+        viewModelScope.launch {
+            repository.deleteSchedule(schedule)
+        }
+    }
+
+    fun toggleRecurringSchedule(schedule: RecurringSchedule) {
+        viewModelScope.launch {
+            repository.updateSchedule(schedule.copy(isActive = !schedule.isActive))
+        }
+    }
+
     fun addManualTransaction(
         amount: Double,
         type: String,
@@ -107,7 +202,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         categoryId: Long?,
         notes: String?,
         paymentMethod: String,
-        timestamp: Long = System.currentTimeMillis()
+        timestamp: Long = System.currentTimeMillis(),
+        recurringFrequency: String? = null
     ) {
         viewModelScope.launch {
             val transaction = Transaction(
@@ -122,6 +218,18 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 source = "MANUAL"
             )
             repository.insertTransaction(transaction)
+
+            if (!recurringFrequency.isNullOrEmpty()) {
+                addRecurringSchedule(
+                    amount = amount,
+                    type = type,
+                    merchant = merchant.ifBlank { "Cash Expense" },
+                    categoryId = categoryId,
+                    notes = notes,
+                    paymentMethod = paymentMethod,
+                    frequency = recurringFrequency
+                )
+            }
         }
     }
 
@@ -137,7 +245,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         notes: String?,
         amount: Double,
         merchant: String,
-        type: String
+        type: String,
+        recurringFrequency: String? = null
     ) {
         viewModelScope.launch {
             val existing = repository.getTransactionById(id)
@@ -151,6 +260,18 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     isPending = false
                 )
                 repository.updateTransaction(updated)
+
+                if (!recurringFrequency.isNullOrEmpty()) {
+                    addRecurringSchedule(
+                        amount = amount,
+                        type = type,
+                        merchant = merchant.ifBlank { existing.merchant },
+                        categoryId = categoryId,
+                        notes = notes,
+                        paymentMethod = existing.paymentMethod,
+                        frequency = recurringFrequency
+                    )
+                }
             }
         }
     }

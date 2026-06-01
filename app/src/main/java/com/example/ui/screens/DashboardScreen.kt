@@ -31,10 +31,12 @@ fun DashboardScreen(
     analytics: AnalyticsState,
     pendingTransactions: List<TransactionWithCategory>,
     allTransactions: List<TransactionWithCategory>,
+    categories: List<com.example.data.Category>,
     selectedFilter: TimeboxFilter,
     onFilterSelected: (TimeboxFilter) -> Unit,
     onEnrichTransaction: (Long) -> Unit,
-    onDeleteTransaction: (com.example.data.Transaction) -> Unit
+    onDeleteTransaction: (com.example.data.Transaction) -> Unit,
+    onNavigateToCategories: () -> Unit
 ) {
     LazyColumn(
         modifier = Modifier
@@ -145,7 +147,7 @@ fun DashboardScreen(
 
         // Metrics Summary Card
         item {
-            MetricsSummarySection(analytics)
+            MetricsSummarySection(analytics, categories)
         }
 
         // Breakdown Chart
@@ -153,6 +155,15 @@ fun DashboardScreen(
             item {
                 CategoryBreakdownSection(analytics)
             }
+        }
+
+        // Budget tracking progress indicators
+        item {
+            BudgetTrackingSection(
+                categories = categories,
+                analytics = analytics,
+                onNavigateToCategories = onNavigateToCategories
+            )
         }
 
         // Outstanding Pending Section banner / horizontal scroll list, or inline alerts
@@ -224,7 +235,209 @@ fun DashboardScreen(
 }
 
 @Composable
-fun MetricsSummarySection(analytics: AnalyticsState) {
+fun BudgetTrackingSection(
+    categories: List<com.example.data.Category>,
+    analytics: AnalyticsState,
+    onNavigateToCategories: () -> Unit
+) {
+    val budgetedCategories = categories.filter { it.budgetLimit != null && it.budgetLimit > 0.0 }
+    
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.5f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .testTag("budget_tracking_section")
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Category Budgets",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                
+                TextButton(onClick = onNavigateToCategories) {
+                    Text(
+                        text = "Manage",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            
+            if (budgetedCategories.isEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.TrendingUp,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f),
+                            modifier = Modifier.size(36.dp)
+                        )
+                        Text(
+                            text = "Track your monthly spends with limits.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                        Text(
+                            text = "Tap 'Manage' above to set spending budgets.",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.clickable { onNavigateToCategories() }
+                        )
+                    }
+                }
+            } else {
+                budgetedCategories.forEach { category ->
+                    // Find spent amount
+                    val spentUsage = analytics.categoryBreakdown.find { it.category.id == category.id }
+                    val spentVal = spentUsage?.amount ?: 0.0
+                    val limit = category.budgetLimit ?: 0.0
+                    val ratio = (spentVal / limit).coerceIn(0.0, 1.0).toFloat()
+                    val percent = (spentVal / limit * 100).toInt()
+                    
+                    val isExceeded = spentVal >= limit
+                    val isClose = spentVal >= 0.8 * limit && spentVal < limit
+                    
+                    val progressColor = when {
+                        isExceeded -> MaterialTheme.colorScheme.error
+                        isClose -> Color(0xFFF59E0B) // Amber
+                        else -> MaterialTheme.colorScheme.primary
+                    }
+                    
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                        modifier = Modifier.fillMaxWidth().testTag("budget_row_${category.id}")
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(CircleShape)
+                                        .background(progressColor.copy(alpha = 0.15f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = getIconVector(category.iconResName),
+                                        contentDescription = null,
+                                        tint = progressColor,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                                
+                                Text(
+                                    text = category.name,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                            }
+                            
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "₹${"%,.0f".format(spentVal)} / ₹${"%,.0f".format(limit)}",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                        
+                        LinearProgressIndicator(
+                            progress = ratio,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(8.dp)
+                                .clip(RoundedCornerShape(4.dp)),
+                            color = progressColor,
+                            trackColor = progressColor.copy(alpha = 0.12f)
+                        )
+                        
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "$percent% of monthly budget spent",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            
+                            if (isExceeded) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Error,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = "Over budget!",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.error
+                                    )
+                                }
+                            } else if (isClose) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = Color(0xFFF59E0B),
+                                        modifier = Modifier.size(12.dp)
+                                    )
+                                    Text(
+                                        text = "Close to limit",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = Color(0xFFD97706)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun MetricsSummarySection(analytics: AnalyticsState, categories: List<com.example.data.Category>) {
     Card(
         shape = RoundedCornerShape(32.dp),
         colors = CardDefaults.cardColors(
@@ -295,7 +508,9 @@ fun MetricsSummarySection(analytics: AnalyticsState) {
                                 color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
                             )
                             Spacer(modifier = Modifier.height(4.dp))
-                            val budgetLeft = (25000.0 - analytics.totalExpense).coerceAtLeast(0.0)
+                            val totalCategoryBudget = categories.filter { it.budgetLimit != null }.sumOf { it.budgetLimit!! }
+                            val actualBudgetLimit = if (totalCategoryBudget > 0.0) totalCategoryBudget else 25000.0
+                            val budgetLeft = (actualBudgetLimit - analytics.totalExpense).coerceAtLeast(0.0)
                             Text(
                                 text = "₹${"%,.0f".format(budgetLeft)}",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),

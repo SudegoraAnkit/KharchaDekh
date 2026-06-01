@@ -31,7 +31,7 @@ fun EnrichmentScreen(
     transactionId: Long,
     categories: List<Category>,
     onGetTransaction: suspend (Long) -> Transaction?,
-    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String) -> Unit,
+    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val scrollState = rememberScrollState()
@@ -42,6 +42,9 @@ fun EnrichmentScreen(
     var notes by remember { mutableStateOf("") }
     var transactionType by remember { mutableStateOf("DEBIT") } // DEBIT / CREDIT
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
+
+    var isRecurringChecked by remember { mutableStateOf(false) }
+    var selectedFrequency by remember { mutableStateOf("MONTHLY") }
 
     // Fetch matching transaction once on launch
     LaunchedEffect(transactionId) {
@@ -63,6 +66,15 @@ fun EnrichmentScreen(
         return
     }
 
+    val isPending = existingTransaction?.isPending == true
+    val titleText = if (isPending) "Categorization & Finalization" else "Edit Ledger Entry"
+    val subText = if (isPending) {
+        "Review, correct, and categorize this transaction to reconcile your ledger. Uncategorized items remain highlighted."
+    } else {
+        "Modify details of this authenticated ledger item. Changes will be updated immediately in your database."
+    }
+    val buttonLabel = if (isPending) "Verify & Reconcile Spends" else "Save Ledger Changes"
+
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -82,7 +94,7 @@ fun EnrichmentScreen(
                 Icon(Icons.Default.ArrowBack, "Back")
             }
             Text(
-                text = "Categorization & Finalization",
+                text = titleText,
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.weight(1f)
@@ -96,7 +108,13 @@ fun EnrichmentScreen(
                     .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
                 Text(
-                    text = if (existingTransaction?.source == "SMS") "Automated SMS" else "Manual Ledger",
+                    text = if (existingTransaction?.source == "SMS") {
+                        "Automated SMS"
+                    } else if (existingTransaction?.source == "RECURRING") {
+                        "Scheduled Item"
+                    } else {
+                        "Manual Ledger"
+                    },
                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onErrorContainer
                 )
@@ -104,7 +122,7 @@ fun EnrichmentScreen(
         }
 
         Text(
-            text = "Review, correct, and categorize this transaction to reconcile your ledger. Uncategorized items remain highlighted.",
+            text = subText,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.secondary
         )
@@ -280,6 +298,84 @@ fun EnrichmentScreen(
             shape = RoundedCornerShape(12.dp)
         )
 
+        // Recurring designation card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            ),
+            modifier = Modifier.fillMaxWidth().testTag("recurring_settings_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Autorenew,
+                            contentDescription = null,
+                            tint = if (isRecurringChecked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                        )
+                        Column {
+                            Text(
+                                text = "Designate as Recurring",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Auto-trigger transactions on schedule",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = isRecurringChecked,
+                        onCheckedChange = { isRecurringChecked = it },
+                        modifier = Modifier.testTag("enrich_recurring_switch")
+                    )
+                }
+
+                if (isRecurringChecked) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    
+                    Text(
+                        text = "Select Schedule Frequency",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("DAILY" to "Daily", "WEEKLY" to "Weekly", "MONTHLY" to "Monthly", "YEARLY" to "Yearly").forEach { (freqKey, label) ->
+                            val isSel = selectedFrequency == freqKey
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedFrequency = freqKey },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.weight(1f).testTag("freq_chip_$freqKey"),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(12.dp))
 
         // Confirm & Finalize item
@@ -287,13 +383,15 @@ fun EnrichmentScreen(
             onClick = {
                 val amt = amountStr.toDoubleOrNull() ?: existingTransaction!!.amount
                 val catId = selectedCategoryId ?: categories.firstOrNull()?.id ?: 0L
+                val freq = if (isRecurringChecked) selectedFrequency else null
                 onFinalizeTransaction(
                     transactionId,
                     catId,
                     notes.trim().ifBlank { null },
                     amt,
                     merchant.trim().ifBlank { "Unknown Merchant" },
-                    transactionType
+                    transactionType,
+                    freq
                 )
                 onNavigateBack()
             },
@@ -310,7 +408,7 @@ fun EnrichmentScreen(
             ) {
                 Icon(Icons.Default.CheckCircle, null)
                 Text(
-                    text = "Verify & Reconcile Spends",
+                    text = buttonLabel,
                     style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                 )
             }

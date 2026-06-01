@@ -34,7 +34,7 @@ import java.util.*
 @Composable
 fun AddManualScreen(
     categories: List<Category>,
-    onSaveTransaction: (amount: Double, type: String, merchant: String, categoryId: Long?, notes: String?, paymentMethod: String, timestamp: Long) -> Unit,
+    onSaveTransaction: (amount: Double, type: String, merchant: String, categoryId: Long?, notes: String?, paymentMethod: String, timestamp: Long, recurringFrequency: String?) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -46,6 +46,9 @@ fun AddManualScreen(
     var transactionType by remember { mutableStateOf("DEBIT") } // "DEBIT" or "CREDIT"
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
     var paymentMethod by remember { mutableStateOf("CASH") } // "CASH", "UPI", "CARD", "NETBANKING"
+
+    var isRecurringChecked by remember { mutableStateOf(false) }
+    var selectedFrequency by remember { mutableStateOf("MONTHLY") }
 
     // DateTime configuration
     var selectedTimestamp by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -72,9 +75,15 @@ fun AddManualScreen(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            IconButton(
+                onClick = onNavigateBack,
+                modifier = Modifier.testTag("manual_back_btn")
+            ) {
+                Icon(Icons.Default.ArrowBack, "Back")
+            }
             Text(
                 text = "Quick Log Transaction",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground,
                 modifier = Modifier.weight(1f)
             )
@@ -109,7 +118,7 @@ fun AddManualScreen(
         Card(
             shape = RoundedCornerShape(16.dp),
             colors = CardDefaults.cardColors(
-                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
             ),
             modifier = Modifier.fillMaxWidth()
         ) {
@@ -239,7 +248,6 @@ fun AddManualScreen(
         // Adaptive visual Category quick-select matrix
         BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
             val columns = 4
-            val itemWidth = maxWidth / columns
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 categories.chunked(columns).forEach { row ->
@@ -372,12 +380,91 @@ fun AddManualScreen(
             shape = RoundedCornerShape(12.dp)
         )
 
+        // Recurring designation card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+            ),
+            modifier = Modifier.fillMaxWidth().testTag("add_recurring_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(12.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Row(
+                        modifier = Modifier.weight(1f),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Autorenew,
+                            contentDescription = null,
+                            tint = if (isRecurringChecked) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.secondary
+                        )
+                        Column {
+                            Text(
+                                text = "Designate as Recurring",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = "Auto-trigger transactions on schedule",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        }
+                    }
+                    Switch(
+                        checked = isRecurringChecked,
+                        onCheckedChange = { isRecurringChecked = it },
+                        modifier = Modifier.testTag("add_recurring_switch")
+                    )
+                }
+
+                if (isRecurringChecked) {
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                    
+                    Text(
+                        text = "Select Schedule Frequency",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        listOf("DAILY" to "Daily", "WEEKLY" to "Weekly", "MONTHLY" to "Monthly", "YEARLY" to "Yearly").forEach { (freqKey, label) ->
+                            val isSel = selectedFrequency == freqKey
+                            FilterChip(
+                                selected = isSel,
+                                onClick = { selectedFrequency = freqKey },
+                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                modifier = Modifier.weight(1f).testTag("add_freq_chip_$freqKey"),
+                                colors = FilterChipDefaults.filterChipColors(
+                                    selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                    selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         // Save Button
         Button(
             onClick = {
                 val amt = amountStr.toDoubleOrNull() ?: 0.0
+                val freq = if (isRecurringChecked) selectedFrequency else null
                 onSaveTransaction(
                     amt,
                     transactionType,
@@ -385,7 +472,8 @@ fun AddManualScreen(
                     selectedCategoryId,
                     notes.trim().ifBlank { null },
                     paymentMethod,
-                    selectedTimestamp
+                    selectedTimestamp,
+                    freq
                 )
             },
             enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),

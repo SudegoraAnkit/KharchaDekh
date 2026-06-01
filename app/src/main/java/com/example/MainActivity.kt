@@ -80,14 +80,17 @@ class MainActivity : ComponentActivity() {
         val selectedFilter by viewModel.timeboxFilter.collectAsStateWithLifecycle()
         val rHour by viewModel.reminderHour.collectAsStateWithLifecycle()
         val rMinute by viewModel.reminderMinute.collectAsStateWithLifecycle()
+        
+        // Collect active recurring schedules Flow
+        val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
 
         if (activeEnrichId != null) {
             EnrichmentScreen(
                 transactionId = activeEnrichId!!,
                 categories = categories,
                 onGetTransaction = { id -> viewModel.getTransactionById(id) },
-                onFinalizeTransaction = { id, catId, notes, amount, merchant, type ->
-                    viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type)
+                onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq ->
+                    viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type, recurringFreq)
                     activeEnrichIdState.value = null // Close enriching panel
                 },
                 onNavigateBack = {
@@ -159,17 +162,19 @@ class MainActivity : ComponentActivity() {
                                 analytics = analytics,
                                 pendingTransactions = pendingTransactions,
                                 allTransactions = allTransactions,
+                                categories = categories,
                                 selectedFilter = selectedFilter,
                                 onFilterSelected = { filter -> viewModel.setTimeboxFilter(filter) },
                                 onEnrichTransaction = { id -> activeEnrichIdState.value = id },
-                                onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) }
+                                onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
+                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES }
                             )
                         }
                         AppTab.ADD_MANUAL -> {
                             AddManualScreen(
                                 categories = categories,
-                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date ->
-                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date)
+                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date, recurringFreq ->
+                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq)
                                     currentTab = AppTab.DASHBOARD // navigate back automatically
                                 },
                                 onNavigateBack = { currentTab = AppTab.DASHBOARD }
@@ -179,7 +184,8 @@ class MainActivity : ComponentActivity() {
                             CategoriesScreen(
                                 categories = categories,
                                 onAddCategory = { name, icon -> viewModel.addCustomCategory(name, icon) },
-                                onDeleteCategory = { cat -> viewModel.deleteCategory(cat) }
+                                onDeleteCategory = { cat -> viewModel.deleteCategory(cat) },
+                                onUpdateCategoryBudget = { cat, budget -> viewModel.updateCategoryBudget(cat, budget) }
                             )
                         }
                         AppTab.SETTINGS -> {
@@ -188,7 +194,11 @@ class MainActivity : ComponentActivity() {
                                 currentMinute = rMinute,
                                 onUpdateTime = { h, m -> viewModel.updateReminderTime(h, m) },
                                 onResetOnboarding = { viewModel.resetOnboarding() },
-                                onSimulateSms = { body -> viewModel.simulateSmsTransaction(body) }
+                                onSimulateSms = { body -> viewModel.simulateSmsTransaction(body) },
+                                recurringSchedules = recurringSchedules,
+                                categories = categories,
+                                onToggleSchedule = { s -> viewModel.toggleRecurringSchedule(s) },
+                                onDeleteSchedule = { s -> viewModel.deleteRecurringSchedule(s) }
                             )
                         }
                     }

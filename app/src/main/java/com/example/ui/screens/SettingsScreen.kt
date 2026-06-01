@@ -9,6 +9,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
@@ -18,12 +19,17 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.example.data.Category
+import com.example.data.RecurringSchedule
+import com.example.ui.components.getIconVector
 
 @Composable
 fun SettingsScreen(
@@ -31,7 +37,11 @@ fun SettingsScreen(
     currentMinute: Int,
     onUpdateTime: (Int, Int) -> Unit,
     onResetOnboarding: () -> Unit,
-    onSimulateSms: (body: String) -> Unit
+    onSimulateSms: (body: String) -> Unit,
+    recurringSchedules: List<RecurringSchedule>,
+    categories: List<Category>,
+    onToggleSchedule: (RecurringSchedule) -> Unit,
+    onDeleteSchedule: (RecurringSchedule) -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -244,7 +254,7 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "No actual SMS needed! Tap these banks to simulate an incoming transaction SMS on-device. This injects a pending transaction feed entry and fires a high-priority system notification.",
+                    text = "No real SMS needed! Tap these bank triggers to simulate parsed SMS receipt locally. Auto-generates critical notifications instantly.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -282,7 +292,136 @@ fun SettingsScreen(
             }
         }
 
-        // Segment 4: Security & Privacy Flush (Erase data)
+        // Segment 4: Scheduled Payments (Recurring Schedules Management)
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth().testTag("recurring_schedules_card")
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Autorenew,
+                        contentDescription = "Recurring schedules",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Active Scheduled Payments",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Text(
+                    text = "Configure and coordinate regular transactions (e.g., monthly rent, standard subscriptions). The core daemon spawns pending reviews once schedules hit trigger thresholds.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (recurringSchedules.isEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "No active schedules logged yet. Toggle \"Designate as Recurring\" when reconciling or logging any transaction.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.secondary,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                        )
+                    }
+                } else {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        recurringSchedules.forEach { s ->
+                            val linkedCat = categories.find { it.id == s.categoryId }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+                                    .padding(8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(32.dp)
+                                            .clip(CircleShape)
+                                            .background(
+                                                if (s.isActive) MaterialTheme.colorScheme.primaryContainer 
+                                                else MaterialTheme.colorScheme.outlineVariant
+                                            ),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = getIconVector(linkedCat?.iconResName ?: "star"),
+                                            contentDescription = null,
+                                            tint = if (s.isActive) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = s.merchant,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                            color = if (s.isActive) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis
+                                        )
+                                        Text(
+                                            text = "${s.frequency} • ₹${"%,.2f".format(s.amount)}",
+                                            style = MaterialTheme.typography.labelSmall,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                    }
+                                }
+
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Switch(
+                                        checked = s.isActive,
+                                        onCheckedChange = { onToggleSchedule(s) },
+                                        modifier = Modifier.scale(0.8f).testTag("toggle_schedule_${s.id}")
+                                    )
+                                    IconButton(
+                                        onClick = { onDeleteSchedule(s) },
+                                        modifier = Modifier.size(32.dp).testTag("delete_schedule_${s.id}")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.DeleteOutline,
+                                            contentDescription = "Delete Schedule",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(18.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Segment 5: Security & Privacy Flush (Erase data)
         Card(
             shape = RoundedCornerShape(12.dp),
             colors = CardDefaults.cardColors(
