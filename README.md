@@ -1,6 +1,4 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://ai.google.dev/static/site-assets/images/share-ais-513315318.png" />
-</div>
+
 
 # KharchaDekh - Privacy-First Automated Expense Tracker
 
@@ -51,9 +49,5 @@ Below is the directory map of the codebase. Click on any folder or key file to n
 ### Steps
 1.  Open Android Studio, select **Open**, and choose the root directory of this project.
 2.  Allow Gradle sync to download packages and index files.
-3.  Create a file named `.env` in the root directory and define your API key (see [.env.example](./.env.example)):
-    ```env
-    GEMINI_API_KEY=your_key_here
-    ```
-4.  Run the application on an emulator or physical testing device.
-5.  To build signed release builds locally, refer to the CLI variables in the [DEVELOPER.md](./DEVELOPER.md) guide.
+3.  Run the application on an emulator or physical testing device.
+4.  To build signed release builds locally, refer to the CLI variables in the [DEVELOPER.md](./DEVELOPER.md) guide.
