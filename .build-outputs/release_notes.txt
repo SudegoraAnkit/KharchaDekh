@@ -1,0 +1,12 @@
+<en-GB>
+Namaste! Welcome to KharchaDekh, India's privacy-first automated expense tracker.
+
+Initial Release Features:
+- 100% Local & Offline: Notification parsing runs strictly on-device (compliant with the DPDP Act 2023).
+- Auto-Tracking: Spends/credits parsed automatically from UPI & banking app notifications.
+- Budgets & Categories: Customise categories and monthly spending limits.
+- Cash Logging: Quick manual entries for offline cash transactions.
+- Cloud Backup: Sync databases securely to Google Drive or OneDrive using Android SAF.
+- Reports: Export transaction ledger to formatted PDF or Excel CSV files.
+- Reminders: Scheduled daily check-ins to stay on budget.
+</en-GB>

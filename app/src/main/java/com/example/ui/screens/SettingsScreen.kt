@@ -29,15 +29,20 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.data.Category
 import com.example.data.RecurringSchedule
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.example.ui.components.getIconVector
 
 @Composable
 fun SettingsScreen(
+    userName: String,
+    onUpdateUserName: (String) -> Unit,
     currentHour: Int,
     currentMinute: Int,
     onUpdateTime: (Int, Int) -> Unit,
     onResetOnboarding: () -> Unit,
     onSimulateSms: (body: String) -> Unit,
+    onBackupDatabase: () -> Unit,
+    onRestoreDatabase: () -> Unit,
     recurringSchedules: List<RecurringSchedule>,
     categories: List<Category>,
     onToggleSchedule: (RecurringSchedule) -> Unit,
@@ -46,18 +51,53 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scrollState = rememberScrollState()
 
-    // Permission state observer
-    var hasSmsPermissions by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(context, Manifest.permission.READ_SMS) == PackageManager.PERMISSION_GRANTED
+    fun isNotificationServiceEnabled(ctx: Context): Boolean {
+        val pkgName = ctx.packageName
+        val flat = android.provider.Settings.Secure.getString(
+            ctx.contentResolver,
+            "enabled_notification_listeners"
         )
+        if (!flat.isNullOrEmpty()) {
+            val names = flat.split(":")
+            for (name in names) {
+                val cn = android.content.ComponentName.unflattenFromString(name)
+                if (cn != null && cn.packageName == pkgName) {
+                    return true
+                }
+            }
+        }
+        return false
     }
 
-    val launcher = rememberLauncherForActivityResult(
-        contract = ActivityResultContracts.RequestMultiplePermissions()
-    ) { results ->
-        hasSmsPermissions = results.values.all { it }
+    // Permission state observer
+    var hasNotificationAccess by remember {
+        mutableStateOf(isNotificationServiceEnabled(context))
     }
+
+    // Observe lifecycle to refresh state when returning to the app
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
+            if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
+                hasNotificationAccess = isNotificationServiceEnabled(context)
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+        }
+    }
+
+    val notificationPermissionLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.RequestPermission()
+    ) { _ ->
+        context.startActivity(android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
+    }
+
+    // Theme-compliant success green colors (Green 400/900 for dark mode, Green 600/100 for light mode)
+    val isDark = isSystemInDarkTheme()
+    val successColor = if (isDark) Color(0xFF4ADE80) else Color(0xFF16A34A)
+    val successBgColor = if (isDark) Color(0xFF064E3B) else Color(0xFFDCFCE7)
 
     // Reminder state variables
     var showTimePickerDiag by remember { mutableStateOf(false) }
@@ -96,63 +136,205 @@ fun SettingsScreen(
                     Icon(
                         imageVector = Icons.Default.Security,
                         contentDescription = "Permission Settings",
-                        tint = if (hasSmsPermissions) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                        tint = if (hasNotificationAccess) successColor else MaterialTheme.colorScheme.error
                     )
                     Text(
-                        text = "SMS Tracking Authorization",
+                        text = "Notification Access Authorization",
                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                     )
                 }
 
                 Text(
-                    text = if (hasSmsPermissions) {
-                        "Explicit system consent is authorized. Bank and payment alphanumeric senders (e.g. HDFCBK, SBIINB) are matched continuously on-device."
+                    text = if (hasNotificationAccess) {
+                        "Explicit system consent is authorized. App notifications from banking and payment apps (e.g. Google Pay, PhonePe, Paytm) are matched continuously on-device."
                     } else {
-                        "System permissions are missing. Automated expense parser is inactive. Grant permissions below to analyze bank/SMS alerts locally."
+                        "System permissions are missing. Automated expense parser is inactive. Grant notification listener access below to analyze transaction alerts locally."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
 
-                if (!hasSmsPermissions) {
+                if (!hasNotificationAccess) {
                     Button(
                         onClick = {
-                            launcher.launch(
-                                arrayOf(
-                                    Manifest.permission.READ_SMS,
-                                    Manifest.permission.RECEIVE_SMS
-                                )
-                            )
+                            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+                                notificationPermissionLauncher.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+                            } else {
+                                context.startActivity(android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
+                            }
                         },
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier
                             .fillMaxWidth()
                             .testTag("request_permissions_btn")
                     ) {
-                        Text("Grant System SMS Access")
+                        Text("Grant Notification Access")
                     }
                 } else {
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFE8F5E9))
+                            .background(successBgColor)
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Authorized",
-                            tint = Color(0xFF2E7D32)
+                            tint = successColor
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Automated Engine Active",
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF2E7D32)
+                                color = successColor
                             )
                         )
+                    }
+                }
+            }
+        }
+
+        // Profile Personalization Card
+        var profileName by remember(userName) { mutableStateOf(userName) }
+        var isEditingName by remember { mutableStateOf(false) }
+
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Person,
+                        contentDescription = "Profile Name",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "User Profile Settings",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                if (isEditingName) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        OutlinedTextField(
+                            value = profileName,
+                            onValueChange = { profileName = it },
+                            label = { Text("Profile Name") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.weight(1f)
+                        )
+                        Button(
+                            onClick = {
+                                onUpdateUserName(profileName)
+                                isEditingName = false
+                            },
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text("Save")
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Current User Name",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Text(
+                                text = userName,
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        TextButton(onClick = { isEditingName = true }) {
+                            Text("Edit Name")
+                        }
+                    }
+                }
+            }
+        }
+
+        // Data Backup & Cloud Sync Card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudQueue,
+                        contentDescription = "Backup and Sync",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Backup & Restore (Cloud / Local)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Text(
+                    text = "Secure your ledger records. Use local file storage or link directly to Google Drive, OneDrive, or Dropbox folders synced on your phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = onBackupDatabase,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Backup")
+                    }
+
+                    OutlinedButton(
+                        onClick = onRestoreDatabase,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Restore")
                     }
                 }
             }
@@ -186,7 +368,7 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "WorkManager schedules a local reminder check daily (default 8:30 PM). If you have unfinalized SMS transactions or log zero entries, we will nudge you gently.",
+                    text = "WorkManager schedules a local reminder check daily (default 8:30 PM). If you have unfinalized transaction alerts or log zero entries, we will nudge you gently.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -254,7 +436,7 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "No real SMS needed! Tap these bank triggers to simulate parsed SMS receipt locally. Auto-generates critical notifications instantly.",
+                    text = "No real notifications needed! Tap these triggers to simulate transaction notifications locally. Auto-generates critical notifications instantly.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -281,7 +463,7 @@ fun SettingsScreen(
                     }
 
                     Button(
-                        onClick = { onSimulateSms("Dear SBI Customer, Rs. 1,200 deposited/credited into Account ...129 via VPA Amazon Cash") },
+                        onClick = { onSimulateSms("Dear Customer, Rs. 1,200 deposited/credited into Account ...129 via VPA Amazon Cash") },
                         colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer),
                         shape = RoundedCornerShape(8.dp),
                         modifier = Modifier.fillMaxWidth()

@@ -16,6 +16,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.example.ui.screens.*
 import com.example.ui.theme.MyApplicationTheme
 import com.example.viewmodel.*
+import android.net.Uri
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
+import com.example.util.BackupManager
+import com.example.data.TransactionWithCategory
 
 enum class AppTab {
     DASHBOARD, ADD_MANUAL, CATEGORIES, SETTINGS
@@ -29,6 +34,32 @@ class MainActivity : ComponentActivity() {
 
     private val activeEnrichIdState = mutableStateOf<Long?>(null)
 
+    private val createDocLauncher = registerForActivityResult(
+        ActivityResultContracts.CreateDocument("application/octet-stream")
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val success = BackupManager.backupDatabase(this, uri)
+            if (success) {
+                Toast.makeText(this, "Database backup created successfully!", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "Failed to create database backup.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
+    private val openDocLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            val success = BackupManager.restoreDatabase(this, uri)
+            if (success) {
+                Toast.makeText(this, "Database restored successfully! Restarting app...", Toast.LENGTH_LONG).show()
+            } else {
+                Toast.makeText(this, "Failed to restore database backup.", Toast.LENGTH_LONG).show()
+            }
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
@@ -39,10 +70,12 @@ class MainActivity : ComponentActivity() {
         setContent {
             MyApplicationTheme {
                 val onboardingState by viewModel.onboardingState.collectAsStateWithLifecycle()
+                val userName by viewModel.userName.collectAsStateWithLifecycle()
 
                 if (onboardingState == OnboardingState.Required) {
                     OnboardingScreen(
-                        onConsentGranted = { 
+                        onConsentGranted = { name ->
+                            viewModel.updateUserName(name)
                             viewModel.completeOnboarding(true) 
                         },
                         onManualOnlyClicked = { 
@@ -80,6 +113,7 @@ class MainActivity : ComponentActivity() {
         val selectedFilter by viewModel.timeboxFilter.collectAsStateWithLifecycle()
         val rHour by viewModel.reminderHour.collectAsStateWithLifecycle()
         val rMinute by viewModel.reminderMinute.collectAsStateWithLifecycle()
+        val userName by viewModel.userName.collectAsStateWithLifecycle()
         
         // Collect active recurring schedules Flow
         val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -106,7 +140,7 @@ class MainActivity : ComponentActivity() {
                         NavigationBarItem(
                             selected = currentTab == AppTab.DASHBOARD,
                             onClick = { currentTab = AppTab.DASHBOARD },
-                            label = { Text("Feed & Insights") },
+                            label = { Text("Feed") },
                             icon = {
                                 Icon(
                                     imageVector = if (currentTab == AppTab.DASHBOARD) Icons.Filled.PieChart else Icons.Outlined.PieChart,
@@ -159,6 +193,7 @@ class MainActivity : ComponentActivity() {
                     when (currentTab) {
                         AppTab.DASHBOARD -> {
                             DashboardScreen(
+                                userName = userName,
                                 analytics = analytics,
                                 pendingTransactions = pendingTransactions,
                                 allTransactions = allTransactions,
@@ -167,7 +202,9 @@ class MainActivity : ComponentActivity() {
                                 onFilterSelected = { filter -> viewModel.setTimeboxFilter(filter) },
                                 onEnrichTransaction = { id -> activeEnrichIdState.value = id },
                                 onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
-                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES }
+                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES },
+                                onExportCsv = { handleExportCsv(allTransactions) },
+                                onExportPdf = { handleExportPdf(allTransactions) }
                             )
                         }
                         AppTab.ADD_MANUAL -> {
@@ -190,11 +227,15 @@ class MainActivity : ComponentActivity() {
                         }
                         AppTab.SETTINGS -> {
                             SettingsScreen(
+                                userName = userName,
+                                onUpdateUserName = { name -> viewModel.updateUserName(name) },
                                 currentHour = rHour,
                                 currentMinute = rMinute,
                                 onUpdateTime = { h, m -> viewModel.updateReminderTime(h, m) },
                                 onResetOnboarding = { viewModel.resetOnboarding() },
                                 onSimulateSms = { body -> viewModel.simulateSmsTransaction(body) },
+                                onBackupDatabase = { createDocLauncher.launch("kharchadekh_backup.db") },
+                                onRestoreDatabase = { openDocLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
                                 recurringSchedules = recurringSchedules,
                                 categories = categories,
                                 onToggleSchedule = { s -> viewModel.toggleRecurringSchedule(s) },
@@ -204,6 +245,33 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+        }
+    }
+
+    private fun shareFile(uri: Uri, mimeType: String, title: String) {
+        val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+            type = mimeType
+            putExtra(android.content.Intent.EXTRA_STREAM, uri)
+            addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        }
+        startActivity(android.content.Intent.createChooser(intent, title))
+    }
+
+    private fun handleExportCsv(transactions: List<TransactionWithCategory>) {
+        val uri = com.example.util.Exporter.exportToCsv(this, transactions)
+        if (uri != null) {
+            shareFile(uri, "text/csv", "Share CSV Expense Report")
+        } else {
+            Toast.makeText(this, "Failed to export CSV report", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun handleExportPdf(transactions: List<TransactionWithCategory>) {
+        val uri = com.example.util.Exporter.exportToPdf(this, transactions)
+        if (uri != null) {
+            shareFile(uri, "application/pdf", "Share PDF Expense Report")
+        } else {
+            Toast.makeText(this, "Failed to export PDF report", Toast.LENGTH_SHORT).show()
         }
     }
 }

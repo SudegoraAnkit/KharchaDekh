@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,7 @@ import com.example.viewmodel.TimeboxFilter
 
 @Composable
 fun DashboardScreen(
+    userName: String,
     analytics: AnalyticsState,
     pendingTransactions: List<TransactionWithCategory>,
     allTransactions: List<TransactionWithCategory>,
@@ -36,8 +38,18 @@ fun DashboardScreen(
     onFilterSelected: (TimeboxFilter) -> Unit,
     onEnrichTransaction: (Long) -> Unit,
     onDeleteTransaction: (com.example.data.Transaction) -> Unit,
-    onNavigateToCategories: () -> Unit
+    onNavigateToCategories: () -> Unit,
+    onExportCsv: () -> Unit,
+    onExportPdf: () -> Unit
 ) {
+    val initials = remember(userName) {
+        userName.split(" ")
+            .filter { it.isNotBlank() }
+            .take(2)
+            .joinToString("") { it.first().uppercase() }
+            .ifEmpty { "U" }
+    }
+
     LazyColumn(
         modifier = Modifier
             .fillMaxSize()
@@ -65,7 +77,7 @@ fun DashboardScreen(
                     )
                     Spacer(modifier = Modifier.height(2.dp))
                     Text(
-                        text = "Namaste, Rahul",
+                        text = "Namaste, $userName",
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Bold,
                             color = MaterialTheme.colorScheme.onBackground
@@ -85,7 +97,7 @@ fun DashboardScreen(
                                 .padding(horizontal = 8.dp, vertical = 4.dp)
                         ) {
                             Text(
-                                text = "NEW SMS",
+                                text = "NEW ALERT",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onErrorContainer
@@ -102,7 +114,7 @@ fun DashboardScreen(
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "RK",
+                            text = initials,
                             color = Color.White,
                             style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
                         )
@@ -187,12 +199,48 @@ fun DashboardScreen(
 
         // Recent Transaction History
         item {
-            Text(
-                text = "Transaction Activity",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(top = 12.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Transaction Activity",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onExportCsv,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("export_csv_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GridOn,
+                            contentDescription = "Export Excel",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(
+                        onClick = onExportPdf,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("export_pdf_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "Export PDF",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
         }
 
         val nonPendingTxns = allTransactions.filter { !it.transaction.isPending }
@@ -299,12 +347,15 @@ fun BudgetTrackingSection(
                             color = MaterialTheme.colorScheme.secondary,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center
                         )
-                        Text(
-                            text = "Tap 'Manage' above to set spending budgets.",
-                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary,
-                            modifier = Modifier.clickable { onNavigateToCategories() }
-                        )
+                        TextButton(
+                            onClick = onNavigateToCategories
+                        ) {
+                            Text(
+                                text = "Tap here to set spending budgets",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
                     }
                 }
             } else {
@@ -665,6 +716,7 @@ fun PendingReviewCard(
     onDeleteClicked: () -> Unit
 ) {
     Card(
+        onClick = onVerifyClicked,
         shape = RoundedCornerShape(24.dp),
         colors = CardDefaults.cardColors(
             containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.4f)
@@ -672,7 +724,6 @@ fun PendingReviewCard(
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.error.copy(alpha = 0.15f)),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onVerifyClicked() }
             .testTag("pending_item_card")
     ) {
         Row(
@@ -692,7 +743,7 @@ fun PendingReviewCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -769,20 +820,21 @@ fun TransactionListItem(
     onDeleteClicked: () -> Unit
 ) {
     val isDebit = item.transaction.type == "DEBIT"
+    val isDark = isSystemInDarkTheme()
     val cardColor = if (isDebit) {
         MaterialTheme.colorScheme.surface
     } else {
-        Color(0xFFE6F9F6) // Soft mint green background tint for receiving money
+        if (isDark) Color(0xFF0F2D24) else Color(0xFFE6F9F6)
     }
 
     Card(
+        onClick = onEditClicked,
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = cardColor),
         border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
         modifier = Modifier
             .fillMaxWidth()
-            .clickable { onEditClicked() }
             .testTag("transaction_item_${item.transaction.id}")
     ) {
         Row(
@@ -853,7 +905,11 @@ fun TransactionListItem(
                 modifier = Modifier.weight(1f)
             ) {
                 val sign = if (isDebit) "-" else "+"
-                val amountColor = if (isDebit) MaterialTheme.colorScheme.onSurface else Color(0xFF0F766E) // Teal 700 for credit text
+                val amountColor = if (isDebit) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    if (isDark) Color(0xFF4ADE80) else Color(0xFF0F766E)
+                }
                 
                 Text(
                     text = "$sign ₹${"%,.2f".format(item.transaction.amount)}",
