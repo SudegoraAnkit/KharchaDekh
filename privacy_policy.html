@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Privacy Policy - KharchaDekh</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --primary: hsl(175, 84%, 32%);
+            --primary-light: hsl(175, 84%, 95%);
+            --text-dark: hsl(222, 47%, 12%);
+            --text-muted: hsl(215, 16%, 47%);
+            --bg-light: hsl(220, 25%, 97%);
+            --card-bg: hsl(0, 0%, 100%);
+            --border: hsl(214, 32%, 91%);
+            --shadow: rgba(15, 23, 42, 0.05);
+            --transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        @media (prefers-color-scheme: dark) {
+            :root {
+                --primary: hsl(175, 84%, 45%);
+                --primary-light: hsl(175, 84%, 12%);
+                --text-dark: hsl(210, 40%, 98%);
+                --text-muted: hsl(215, 20%, 65%);
+                --bg-light: hsl(222, 47%, 7%);
+                --card-bg: hsl(222, 47%, 11%);
+                --border: hsl(217, 30%, 18%);
+                --shadow: rgba(0, 0, 0, 0.3);
+            }
+        }
+
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+        }
+
+        body {
+            font-family: 'Outfit', sans-serif;
+            background-color: var(--bg-light);
+            color: var(--text-dark);
+            line-height: 1.6;
+            padding: 40px 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            transition: var(--transition);
+        }
+
+        .container {
+            max-width: 800px;
+            width: 100%;
+            background-color: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 24px;
+            padding: 48px;
+            box-shadow: 0 10px 30px -10px var(--shadow);
+            transition: var(--transition);
+        }
+
+        header {
+            margin-bottom: 40px;
+            text-align: center;
+        }
+
+        .logo-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background-color: var(--primary-light);
+            color: var(--primary);
+            padding: 8px 16px;
+            border-radius: 99px;
+            font-weight: 600;
+            font-size: 0.9rem;
+            letter-spacing: 1px;
+            text-transform: uppercase;
+            margin-bottom: 16px;
+        }
+
+        h1 {
+            font-size: 2.5rem;
+            font-weight: 800;
+            color: var(--text-dark);
+            letter-spacing: -0.5px;
+            margin-bottom: 8px;
+        }
+
+        .last-updated {
+            font-size: 0.95rem;
+            color: var(--text-muted);
+        }
+
+        hr {
+            border: 0;
+            height: 1px;
+            background-color: var(--border);
+            margin: 32px 0;
+        }
+
+        section {
+            margin-bottom: 32px;
+        }
+
+        h2 {
+            font-size: 1.4rem;
+            font-weight: 600;
+            color: var(--primary);
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        p, ul {
+            color: var(--text-dark);
+            opacity: 0.9;
+            font-size: 1.05rem;
+            margin-bottom: 16px;
+        }
+
+        ul {
+            padding-left: 20px;
+        }
+
+        li {
+            margin-bottom: 8px;
+        }
+
+        .highlight-box {
+            background-color: var(--primary-light);
+            border-left: 4px solid var(--primary);
+            padding: 16px 20px;
+            border-radius: 0 12px 12px 0;
+            margin-bottom: 24px;
+        }
+
+        .highlight-box p {
+            margin-bottom: 0;
+            font-weight: 500;
+            color: var(--text-dark);
+        }
+
+        footer {
+            margin-top: 48px;
+            text-align: center;
+            font-size: 0.9rem;
+            color: var(--text-muted);
+        }
+
+        @media (max-width: 600px) {
+            body {
+                padding: 20px 10px;
+            }
+            .container {
+                padding: 24px;
+                border-radius: 16px;
+            }
+            h1 {
+                font-size: 1.8rem;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <div class="logo-badge" id="logo-badge-id">KharchaDekh</div>
+            <h1 id="main-title">Privacy Policy</h1>
+            <p class="last-updated" id="last-updated-id">Last Updated: June 6, 2026</p>
+        </header>
+
+        <hr>
+
+        <section id="philosophy-section">
+            <div class="highlight-box">
+                <p>Core Philosophy: Your data is yours. It stays on your device. We do not host any remote tracking servers, and we never collect, upload, or sell your financial histories.</p>
+            </div>
+            <p>Welcome to KharchaDekh. We respect your privacy and are committed to protecting it. This Privacy Policy details how the KharchaDekh mobile application handles your data locally on your device.</p>
+        </section>
+
+        <section id="collection-section">
+            <h2>1. Zero Server-Side Transmission</h2>
+            <p>KharchaDekh is built to run entirely offline:</p>
+            <ul>
+                <li><strong>No Accounts:</strong> You do not need to register, log in, or link any external credentials to use the app.</li>
+                <li><strong>No Analytics/Tracking:</strong> We do not employ third-party tracking, advertising SDKs, or cloud analytics tools.</li>
+                <li><strong>No Internet Needed:</strong> The core features of the app function completely offline.</li>
+            </ul>
+        </section>
+
+        <section id="notification-section">
+            <h2>2. Notification Listener Access</h2>
+            <p>With your explicit consent, KharchaDekh utilizes Android's <strong>Notification Listener Service</strong>. This runs locally on your phone to parse financial SMS notifications sent by banking and UPI applications (such as Google Pay, PhonePe, Paytm, HDFC, SBI, ICICI, etc.):</p>
+            <ul>
+                <li><strong>Local Parsing:</strong> The notification texts are processed strictly on-device to extract transaction amounts, credit/debit indicators, and merchant names.</li>
+                <li><strong>Strict Filtering:</strong> The app actively ignores all non-financial alerts. Only specific transaction messages are processed.</li>
+                <li><strong>Local DB Storage:</strong> Categorized ledger logs are saved securely inside the app's local sandbox SQLite database.</li>
+            </ul>
+        </section>
+
+        <section id="backups-section">
+            <h2>3. Local and Cloud Backups (SAF)</h2>
+            <p>KharchaDekh lets you back up and restore your local SQLite ledger database files. This features uses Android's native <strong>Storage Access Framework (SAF)</strong>:</p>
+            <ul>
+                <li>We do not operate any database sync servers.</li>
+                <li>When you perform a backup, you choose where to save the file (local folder, Google Drive, OneDrive, or Dropbox) synced on your Android device.</li>
+                <li>Your data is written directly to your own storage container, keeping your data entirely under your personal control.</li>
+            </ul>
+        </section>
+
+        <section id="dpdp-section">
+            <h2>4. DPDP Act 2023 & User Control</h2>
+            <p>In full compliance with India's <strong>Digital Personal Data Protection (DPDP) Act 2023</strong>, we provide complete, transparent control over your local data:</p>
+            <ul>
+                <li><strong>Right to Erase:</strong> You can erase all transaction entries, custom categories, and consent states instantly using the "Flush All Ledger States" button in the Settings panel.</li>
+                <li><strong>Explicit Consent:</strong> You have full control over permission grants. If you decline Notification Access, you can still use the app manually.</li>
+            </ul>
+        </section>
+
+        <section id="changes-section">
+            <h2>5. Changes to This Policy</h2>
+            <p>We may update our Privacy Policy occasionally. Since we do not collect user email addresses or phone numbers, we recommend checking this page periodically. Any modifications will be reflected with a revised "Last Updated" date at the top.</p>
+        </section>
+
+        <section id="contact-section">
+            <h2>6. Contact & Support</h2>
+            <p>If you have any questions or feedback regarding local privacy practices, you can contact the developer at: <strong>support@ankitsudegora.com</strong></p>
+        </section>
+
+        <footer>
+            <p>&copy; 2026 KharchaDekh. All rights reserved.</p>
+        </footer>
+    </div>
+</body>
+</html>

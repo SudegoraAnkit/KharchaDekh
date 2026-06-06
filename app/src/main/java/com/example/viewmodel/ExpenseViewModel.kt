@@ -153,7 +153,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     fun resetOnboarding() {
         prefs.edit().putBoolean("dpdp_consent_granted", false).apply()
         _onboardingState.value = OnboardingState.Required
-        ReminderWorker.cancelReminder(getApplication())
+        ReminderWorker.cancelAllReminders(getApplication())
     }
 
     fun setTimeboxFilter(filter: TimeboxFilter) {
@@ -401,7 +401,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     }
 
     private fun setupWorkReminder(forceRestart: Boolean = false) {
-        ReminderWorker.scheduleDailyReminder(
+        ReminderWorker.scheduleAllReminders(
             getApplication(),
             _reminderHour.value,
             _reminderMinute.value,

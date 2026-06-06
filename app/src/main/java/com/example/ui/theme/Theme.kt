@@ -12,26 +12,26 @@ import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme =
   darkColorScheme(
-    primary = PrimaryTeal,
-    onPrimary = OnPrimaryTeal,
-    primaryContainer = PrimaryContainerTeal,
-    onPrimaryContainer = OnPrimaryContainerTeal,
-    secondary = SecondarySlate,
-    onSecondary = OnSecondarySlate,
-    secondaryContainer = SecondaryContainerSlate,
-    onSecondaryContainer = OnSecondaryContainerSlate,
-    background = GeoBackground,
-    onBackground = GeoOnBackground,
-    surface = GeoSurface,
-    onSurface = GeoOnSurface,
-    surfaceVariant = GeoSurfaceVariant,
-    onSurfaceVariant = GeoOnSurfaceVariant,
-    outline = GeoOutline,
-    outlineVariant = GeoOutlineVariant,
-    error = GeoError,
-    onError = GeoOnError,
-    errorContainer = GeoErrorContainer,
-    onErrorContainer = GeoOnErrorContainer
+    primary = DarkPrimaryTeal,
+    onPrimary = DarkOnPrimary,
+    primaryContainer = DarkPrimaryContainer,
+    onPrimaryContainer = DarkOnPrimaryContainer,
+    secondary = DarkSecondary,
+    onSecondary = DarkOnSecondary,
+    secondaryContainer = DarkSecondaryContainer,
+    onSecondaryContainer = DarkOnSecondaryContainer,
+    background = DarkBackground,
+    onBackground = DarkOnBackground,
+    surface = DarkSurface,
+    onSurface = DarkOnSurface,
+    surfaceVariant = DarkSurfaceVariant,
+    onSurfaceVariant = DarkOnSurfaceVariant,
+    outline = DarkOutline,
+    outlineVariant = DarkOutlineVariant,
+    error = DarkError,
+    onError = DarkOnError,
+    errorContainer = DarkErrorContainer,
+    onErrorContainer = DarkOnErrorContainer
   )
 
 private val LightColorScheme =

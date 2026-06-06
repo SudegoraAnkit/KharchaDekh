@@ -2,6 +2,7 @@ package com.example.ui.screens
 
 import androidx.compose.animation.*
 import androidx.compose.foundation.background
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -37,7 +38,9 @@ fun DashboardScreen(
     onFilterSelected: (TimeboxFilter) -> Unit,
     onEnrichTransaction: (Long) -> Unit,
     onDeleteTransaction: (com.example.data.Transaction) -> Unit,
-    onNavigateToCategories: () -> Unit
+    onNavigateToCategories: () -> Unit,
+    onExportCsv: () -> Unit,
+    onExportPdf: () -> Unit
 ) {
     val initials = remember(userName) {
         userName.split(" ")
@@ -196,12 +199,48 @@ fun DashboardScreen(
 
         // Recent Transaction History
         item {
-            Text(
-                text = "Transaction Activity",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onBackground,
-                modifier = Modifier.padding(top = 12.dp)
-            )
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Transaction Activity",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(
+                        onClick = onExportCsv,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("export_csv_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.GridOn,
+                            contentDescription = "Export Excel",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                    IconButton(
+                        onClick = onExportPdf,
+                        modifier = Modifier
+                            .size(36.dp)
+                            .testTag("export_pdf_btn")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PictureAsPdf,
+                            contentDescription = "Export PDF",
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                    }
+                }
+            }
         }
 
         val nonPendingTxns = allTransactions.filter { !it.transaction.isPending }
@@ -704,7 +743,7 @@ fun PendingReviewCard(
                     modifier = Modifier
                         .size(44.dp)
                         .clip(RoundedCornerShape(12.dp))
-                        .background(Color.White),
+                        .background(MaterialTheme.colorScheme.surfaceVariant),
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -781,10 +820,11 @@ fun TransactionListItem(
     onDeleteClicked: () -> Unit
 ) {
     val isDebit = item.transaction.type == "DEBIT"
+    val isDark = isSystemInDarkTheme()
     val cardColor = if (isDebit) {
         MaterialTheme.colorScheme.surface
     } else {
-        Color(0xFFE6F9F6) // Soft mint green background tint for receiving money
+        if (isDark) Color(0xFF0F2D24) else Color(0xFFE6F9F6)
     }
 
     Card(
@@ -865,7 +905,11 @@ fun TransactionListItem(
                 modifier = Modifier.weight(1f)
             ) {
                 val sign = if (isDebit) "-" else "+"
-                val amountColor = if (isDebit) MaterialTheme.colorScheme.onSurface else Color(0xFF0F766E) // Teal 700 for credit text
+                val amountColor = if (isDebit) {
+                    MaterialTheme.colorScheme.onSurface
+                } else {
+                    if (isDark) Color(0xFF4ADE80) else Color(0xFF0F766E)
+                }
                 
                 Text(
                     text = "$sign ₹${"%,.2f".format(item.transaction.amount)}",

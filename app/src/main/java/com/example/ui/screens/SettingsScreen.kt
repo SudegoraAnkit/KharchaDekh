@@ -29,6 +29,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.data.Category
 import com.example.data.RecurringSchedule
+import androidx.compose.foundation.isSystemInDarkTheme
 import com.example.ui.components.getIconVector
 
 @Composable
@@ -40,6 +41,8 @@ fun SettingsScreen(
     onUpdateTime: (Int, Int) -> Unit,
     onResetOnboarding: () -> Unit,
     onSimulateSms: (body: String) -> Unit,
+    onBackupDatabase: () -> Unit,
+    onRestoreDatabase: () -> Unit,
     recurringSchedules: List<RecurringSchedule>,
     categories: List<Category>,
     onToggleSchedule: (RecurringSchedule) -> Unit,
@@ -91,6 +94,11 @@ fun SettingsScreen(
         context.startActivity(android.content.Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
     }
 
+    // Theme-compliant success green colors (Green 400/900 for dark mode, Green 600/100 for light mode)
+    val isDark = isSystemInDarkTheme()
+    val successColor = if (isDark) Color(0xFF4ADE80) else Color(0xFF16A34A)
+    val successBgColor = if (isDark) Color(0xFF064E3B) else Color(0xFFDCFCE7)
+
     // Reminder state variables
     var showTimePickerDiag by remember { mutableStateOf(false) }
     var inputHour by remember { mutableStateOf(currentHour) }
@@ -128,7 +136,7 @@ fun SettingsScreen(
                     Icon(
                         imageVector = Icons.Default.Security,
                         contentDescription = "Permission Settings",
-                        tint = if (hasNotificationAccess) Color(0xFF2E7D32) else MaterialTheme.colorScheme.error
+                        tint = if (hasNotificationAccess) successColor else MaterialTheme.colorScheme.error
                     )
                     Text(
                         text = "Notification Access Authorization",
@@ -167,21 +175,21 @@ fun SettingsScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(8.dp))
-                            .background(Color(0xFFE8F5E9))
+                            .background(successBgColor)
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
                         Icon(
                             imageVector = Icons.Default.CheckCircle,
                             contentDescription = "Authorized",
-                            tint = Color(0xFF2E7D32)
+                            tint = successColor
                         )
                         Spacer(modifier = Modifier.width(8.dp))
                         Text(
                             text = "Automated Engine Active",
                             style = MaterialTheme.typography.labelLarge.copy(
                                 fontWeight = FontWeight.Bold,
-                                color = Color(0xFF2E7D32)
+                                color = successColor
                             )
                         )
                     }
@@ -264,6 +272,69 @@ fun SettingsScreen(
                         TextButton(onClick = { isEditingName = true }) {
                             Text("Edit Name")
                         }
+                    }
+                }
+            }
+        }
+
+        // Data Backup & Cloud Sync Card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CloudQueue,
+                        contentDescription = "Backup and Sync",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Backup & Restore (Cloud / Local)",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Text(
+                    text = "Secure your ledger records. Use local file storage or link directly to Google Drive, OneDrive, or Dropbox folders synced on your phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Button(
+                        onClick = onBackupDatabase,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Backup")
+                    }
+
+                    OutlinedButton(
+                        onClick = onRestoreDatabase,
+                        shape = RoundedCornerShape(8.dp),
+                        modifier = Modifier.weight(1f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                    ) {
+                        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text("Restore")
                     }
                 }
             }

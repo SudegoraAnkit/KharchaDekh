@@ -20,7 +20,8 @@ class ReminderWorker(
 ) : CoroutineWorker(context, workerParams) {
 
     override suspend fun doWork(): Result {
-        Log.d("ReminderWorker", "Starting checks for daily reminder")
+        val isUnconditional = inputData.getBoolean("KEY_IS_UNCONDITIONAL", false)
+        Log.d("ReminderWorker", "Starting checks for daily reminder. Unconditional = $isUnconditional")
         val db = AppDatabase.getDatabase(applicationContext)
 
         val pendingCount = db.transactionDao().getPendingTransactionsCount()
@@ -30,8 +31,8 @@ class ReminderWorker(
 
         Log.d("ReminderWorker", "Pending transactions: $pendingCount, logged during 24h: $entriesLast24h")
 
-        // Condition: Fire reminder if user has pending unresolved transactions OR zero entries in past 24 hours
-        if (pendingCount > 0 || entriesLast24h == 0) {
+        // Condition: Fire reminder if unconditional OR user has pending unresolved transactions OR zero entries in past 24 hours
+        if (isUnconditional || pendingCount > 0 || entriesLast24h == 0) {
             triggerReminderNotification()
         }
 
@@ -48,7 +49,7 @@ class ReminderWorker(
                 "Daily Reminders",
                 NotificationManager.IMPORTANCE_DEFAULT
             ).apply {
-                description = "Daily evening reminder to clean and categorize your expenses"
+                description = "Daily reminders to clean and categorize your expenses"
             }
             notificationManager.createNotificationChannel(channel)
         }
@@ -68,8 +69,8 @@ class ReminderWorker(
 
         val notification = NotificationCompat.Builder(applicationContext, channelId)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle("Review Today's Expenses 📝")
-            .setContentText("Don't let your expenses pile up! Tap to categorize or log your spending.")
+            .setContentTitle("Review Expenses 📝")
+            .setContentText("Don't let your expenses pile up! Tap to review notifications or log manual spends.")
             .setPriority(NotificationCompat.PRIORITY_DEFAULT)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
@@ -79,12 +80,17 @@ class ReminderWorker(
     }
 
     companion object {
-        private const val REMINDER_WORK_NAME = "kharchadekh_daily_reminder"
 
-        fun scheduleDailyReminder(context: Context, hour: Int = 20, minute: Int = 30, forceRestart: Boolean = false) {
+        private fun scheduleSingleReminder(
+            context: Context,
+            workName: String,
+            hour: Int,
+            minute: Int,
+            isUnconditional: Boolean,
+            forceRestart: Boolean
+        ) {
             val workManager = WorkManager.getInstance(context)
 
-            // Calculate initial delay until target time today, or tomorrow if target already passed today
             val calendar = Calendar.getInstance().apply {
                 set(Calendar.HOUR_OF_DAY, hour)
                 set(Calendar.MINUTE, minute)
@@ -101,25 +107,50 @@ class ReminderWorker(
                 .setRequiresBatteryNotLow(true)
                 .build()
 
-            // Run daily (every 24 hours)
+            val inputData = workDataOf("KEY_IS_UNCONDITIONAL" to isUnconditional)
+
             val request = PeriodicWorkRequestBuilder<ReminderWorker>(24, TimeUnit.HOURS)
                 .setInitialDelay(initialDelay, TimeUnit.MILLISECONDS)
                 .setConstraints(constraints)
+                .setInputData(inputData)
                 .build()
 
             val policy = if (forceRestart) ExistingPeriodicWorkPolicy.UPDATE else ExistingPeriodicWorkPolicy.KEEP
 
             workManager.enqueueUniquePeriodicWork(
-                REMINDER_WORK_NAME,
+                workName,
                 policy,
                 request
             )
-            Log.d("ReminderWorker", "Scheduled daily reminder for $hour:$minute. Policy: $policy. Initial delay in mins: ${initialDelay / 60000}")
+            Log.d("ReminderWorker", "Scheduled $workName for $hour:$minute. Unconditional: $isUnconditional. Policy: $policy. Delay: ${initialDelay / 60000}m")
         }
-        
-        fun cancelReminder(context: Context) {
-            WorkManager.getInstance(context).cancelUniqueWork(REMINDER_WORK_NAME)
-            Log.d("ReminderWorker", "Cancelled daily reminder work")
+
+        fun scheduleAllReminders(
+            context: Context, 
+            customHour: Int = 20, 
+            customMinute: Int = 30, 
+            forceRestart: Boolean = false
+        ) {
+            // 1. Morning Reminder (9:00 AM) - Conditional
+            scheduleSingleReminder(context, "kharchadekh_morning_reminder", 9, 0, false, forceRestart)
+
+            // 2. Midday Reminder (1:30 PM) - Conditional
+            scheduleSingleReminder(context, "kharchadekh_midday_reminder", 13, 30, false, forceRestart)
+
+            // 3. Afternoon Reminder (5:30 PM) - Conditional
+            scheduleSingleReminder(context, "kharchadekh_afternoon_reminder", 17, 30, false, forceRestart)
+
+            // 4. Night/Evening Reminder (Custom user selected hour, Unconditional)
+            scheduleSingleReminder(context, "kharchadekh_night_reminder", customHour, customMinute, true, forceRestart)
+        }
+
+        fun cancelAllReminders(context: Context) {
+            val workManager = WorkManager.getInstance(context)
+            workManager.cancelUniqueWork("kharchadekh_morning_reminder")
+            workManager.cancelUniqueWork("kharchadekh_midday_reminder")
+            workManager.cancelUniqueWork("kharchadekh_afternoon_reminder")
+            workManager.cancelUniqueWork("kharchadekh_night_reminder")
+            Log.d("ReminderWorker", "Cancelled all reminders work")
         }
     }
 }
