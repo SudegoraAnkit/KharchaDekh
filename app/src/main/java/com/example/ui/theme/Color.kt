@@ -13,13 +13,13 @@ val OnSecondarySlate = Color.White
 val SecondaryContainerSlate = Color(0xFFF1F5F9) // Slate 100
 val OnSecondaryContainerSlate = Color(0xFF0F172A) // Slate 900
 
-val GeoBackground = Color(0xFFF0FDF4).copy(alpha = 0.4f) // Extra light clean background
+val GeoBackground = Color(0xFFF8FAFC) // Solid slate-white for pleasant, clean light mode background
 val GeoOnBackground = Color(0xFF0F172A)       // Slate 900 for high-contrast text
 
 val GeoSurface = Color.White
 val GeoOnSurface = Color(0xFF0F172A)
 val GeoSurfaceVariant = Color(0xFFF1F5F9)     // Slate 100 (for secondary items)
-val GeoOnSurfaceVariant = Color(0xFF334155)    // Slate 700 (Ensures WCAG text contrast)
+val GeoOnSurfaceVariant = Color(0xFF1E293B)    // Slate 800 (Ensures WCAG text contrast)
 
 val GeoOutline = Color(0xFFCBD5E1)            // Slate 300
 val GeoOutlineVariant = Color(0xFFE2E8F0)     // Slate 200

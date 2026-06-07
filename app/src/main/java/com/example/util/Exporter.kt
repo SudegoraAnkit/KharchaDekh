@@ -70,6 +70,12 @@ object Exporter {
             textSize = 10f
             isAntiAlias = true
         }
+        val footerPaint = Paint().apply {
+            color = Color.GRAY
+            textSize = 9f
+            isAntiAlias = true
+            textAlign = Paint.Align.CENTER
+        }
 
         // Draw page 1
         val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 Size: 595 x 842 pt
@@ -120,6 +126,7 @@ object Exporter {
         for (item in transactions) {
             // Check if page height exceeded
             if (yPosition > 780f) {
+                canvas.drawText("Made with 💝 by Ankit Sudegora • 100% Offline & Private", 595f / 2f, 815f, footerPaint)
                 pdfDocument.finishPage(page)
                 val newPageInfo = PdfDocument.PageInfo.Builder(595, 842, pdfDocument.pages.size + 1).create()
                 page = pdfDocument.startPage(newPageInfo)
@@ -158,6 +165,7 @@ object Exporter {
             yPosition += 22f
         }
 
+        canvas.drawText("Made with 💝 by Ankit Sudegora • 100% Offline & Private", 595f / 2f, 815f, footerPaint)
         pdfDocument.finishPage(page)
 
         return try {

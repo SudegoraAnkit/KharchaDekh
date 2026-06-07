@@ -88,6 +88,9 @@ interface CategoryDao {
     @Query("SELECT * FROM categories ORDER BY isCustom ASC, id ASC")
     suspend fun getAllCategories(): List<Category>
 
+    @Query("SELECT * FROM categories WHERE id = :id")
+    suspend fun getCategoryById(id: Long): Category?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCategory(category: Category): Long
 
@@ -116,6 +119,9 @@ interface TransactionDao {
 
     @Query("SELECT COUNT(*) FROM transactions WHERE timestamp >= :since")
     suspend fun getTransactionsCountSince(since: Long): Int
+
+    @Query("SELECT SUM(amount) FROM transactions WHERE categoryId = :categoryId AND type = 'DEBIT' AND isPending = 0 AND timestamp >= :since")
+    suspend fun getCategorySpentSince(categoryId: Long, since: Long): Double?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: Transaction): Long

@@ -46,7 +46,13 @@ fun SettingsScreen(
     recurringSchedules: List<RecurringSchedule>,
     categories: List<Category>,
     onToggleSchedule: (RecurringSchedule) -> Unit,
-    onDeleteSchedule: (RecurringSchedule) -> Unit
+    onDeleteSchedule: (RecurringSchedule) -> Unit,
+    monthlyIncome: Double,
+    savingsTargetPct: Int,
+    spendingTargetPct: Int,
+    onUpdateBudgetGoals: (Double, Int, Int) -> Unit,
+    autoBackupNight: Boolean,
+    onUpdateAutoBackupNight: (Boolean) -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -116,6 +122,41 @@ fun SettingsScreen(
             style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
             color = MaterialTheme.colorScheme.onBackground
         )
+
+        // Trust Banner: 100% Offline & Private
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VerifiedUser,
+                        contentDescription = "Privacy Verified",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "100% Offline & Private",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+                Text(
+                    text = "KharchaDekh stores and processes all transaction data strictly on your device. SMS parsing and notifications are handled completely offline. No accounts are required, and no records ever leave your phone.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         // Segment 1: System Permissions Compliance Status
         Card(
@@ -277,6 +318,119 @@ fun SettingsScreen(
             }
         }
 
+        // Budget Goals Planner Card
+        var incomeInput by remember(monthlyIncome) { mutableStateOf(if (monthlyIncome > 0) monthlyIncome.toInt().toString() else "") }
+        var savingsInput by remember(savingsTargetPct) { mutableStateOf(savingsTargetPct.toString()) }
+        var spendingInput by remember(spendingTargetPct) { mutableStateOf(spendingTargetPct.toString()) }
+        var isEditingGoals by remember { mutableStateOf(false) }
+
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.TrendingUp,
+                        contentDescription = "Budget Planner",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Budget & Savings Planner",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Text(
+                    text = "Establish your financial boundaries. Setting a monthly income and target percentages helps monitor active progress directly on the feed.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                if (isEditingGoals) {
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        OutlinedTextField(
+                            value = incomeInput,
+                            onValueChange = { incomeInput = it.filter { char -> char.isDigit() } },
+                            label = { Text("Monthly Income (₹)") },
+                            singleLine = true,
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            OutlinedTextField(
+                                value = savingsInput,
+                                onValueChange = { savingsInput = it.filter { char -> char.isDigit() } },
+                                label = { Text("Savings Target (%)") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                            OutlinedTextField(
+                                value = spendingInput,
+                                onValueChange = { spendingInput = it.filter { char -> char.isDigit() } },
+                                label = { Text("Spending Cap (%)") },
+                                singleLine = true,
+                                shape = RoundedCornerShape(8.dp),
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
+
+                        Button(
+                            onClick = {
+                                val inc = incomeInput.toDoubleOrNull() ?: 0.0
+                                val sav = savingsInput.toIntOrNull() ?: 20
+                                val spnd = spendingInput.toIntOrNull() ?: 50
+                                onUpdateBudgetGoals(inc, sav, spnd)
+                                isEditingGoals = false
+                            },
+                            shape = RoundedCornerShape(8.dp),
+                            modifier = Modifier.align(Alignment.End)
+                        ) {
+                            Text("Save Goals")
+                        }
+                    }
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Text(
+                                text = "Monthly Income: " + (if (monthlyIncome > 0) "₹%,.0f".format(monthlyIncome) else "Not set"),
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Target Splits: Savings ${savingsTargetPct}% | Spending Max ${spendingTargetPct}%",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        TextButton(onClick = { isEditingGoals = true }) {
+                            Text("Adjust Goals")
+                        }
+                    }
+                }
+            }
+        }
+
         // Data Backup & Cloud Sync Card
         Card(
             shape = RoundedCornerShape(12.dp),
@@ -336,6 +490,31 @@ fun SettingsScreen(
                         Spacer(modifier = Modifier.width(8.dp))
                         Text("Restore")
                     }
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Auto Backup at Night",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "Saves database snapshot to secure files automatically during daily night reminder check.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = autoBackupNight,
+                        onCheckedChange = onUpdateAutoBackupNight,
+                        modifier = Modifier.testTag("auto_backup_night_switch")
+                    )
                 }
             }
         }
@@ -603,6 +782,58 @@ fun SettingsScreen(
             }
         }
 
+        // Share App card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Share,
+                        contentDescription = "Share App",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Share KharchaDekh",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+                Text(
+                    text = "Help your friends organize their transactions! Share this secure, 100% offline, privacy-first ledger app with them.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Button(
+                    onClick = {
+                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                android.content.Intent.EXTRA_TEXT,
+                                "Hey! Check out KharchaDekh, an ultra-secure, 100% offline personal finance and budget manager that auto-reads bank notification alerts completely on-device without exposing your data! Download it now: https://github.com/SudegoraAnkit/KharchaDekh"
+                            )
+                        }
+                        context.startActivity(android.content.Intent.createChooser(shareIntent, "Share KharchaDekh with friends"))
+                    },
+                    shape = RoundedCornerShape(8.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("Share with Friends")
+                }
+            }
+        }
+
         // Segment 5: Security & Privacy Flush (Erase data)
         Card(
             shape = RoundedCornerShape(12.dp),
@@ -638,6 +869,26 @@ fun SettingsScreen(
                 }
             }
         }
+
+        Spacer(modifier = Modifier.height(16.dp))
+        Box(
+            modifier = Modifier.fillMaxWidth(),
+            contentAlignment = Alignment.Center
+        ) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    text = "Made with 💝 by Ankit Sudegora",
+                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.secondary
+                )
+                Text(
+                    text = "Version 1.0.0.2 • Secure Ledger",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.outline
+                )
+            }
+        }
+        Spacer(modifier = Modifier.height(16.dp))
     }
 
     // Modal Time Picker Dialog representation

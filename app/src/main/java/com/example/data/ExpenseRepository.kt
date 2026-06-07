@@ -63,6 +63,14 @@ class ExpenseRepository(
         return categoryDao.getAllCategories()
     }
 
+    suspend fun getCategoryById(id: Long): Category? {
+        return categoryDao.getCategoryById(id)
+    }
+
+    suspend fun getCategorySpentSince(categoryId: Long, since: Long): Double {
+        return transactionDao.getCategorySpentSince(categoryId, since) ?: 0.0
+    }
+
     suspend fun insertCategory(category: Category): Long {
         return categoryDao.insertCategory(category)
     }

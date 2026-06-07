@@ -114,6 +114,10 @@ class MainActivity : ComponentActivity() {
         val rHour by viewModel.reminderHour.collectAsStateWithLifecycle()
         val rMinute by viewModel.reminderMinute.collectAsStateWithLifecycle()
         val userName by viewModel.userName.collectAsStateWithLifecycle()
+        val monthlyIncome by viewModel.monthlyIncome.collectAsStateWithLifecycle()
+        val savingsTargetPct by viewModel.savingsTargetPct.collectAsStateWithLifecycle()
+        val spendingTargetPct by viewModel.spendingTargetPct.collectAsStateWithLifecycle()
+        val autoBackupNight by viewModel.autoBackupNight.collectAsStateWithLifecycle()
         
         // Collect active recurring schedules Flow
         val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -204,7 +208,10 @@ class MainActivity : ComponentActivity() {
                                 onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
                                 onNavigateToCategories = { currentTab = AppTab.CATEGORIES },
                                 onExportCsv = { handleExportCsv(allTransactions) },
-                                onExportPdf = { handleExportPdf(allTransactions) }
+                                onExportPdf = { handleExportPdf(allTransactions) },
+                                monthlyIncome = monthlyIncome,
+                                savingsTargetPct = savingsTargetPct,
+                                spendingTargetPct = spendingTargetPct
                             )
                         }
                         AppTab.ADD_MANUAL -> {
@@ -239,7 +246,13 @@ class MainActivity : ComponentActivity() {
                                 recurringSchedules = recurringSchedules,
                                 categories = categories,
                                 onToggleSchedule = { s -> viewModel.toggleRecurringSchedule(s) },
-                                onDeleteSchedule = { s -> viewModel.deleteRecurringSchedule(s) }
+                                onDeleteSchedule = { s -> viewModel.deleteRecurringSchedule(s) },
+                                monthlyIncome = monthlyIncome,
+                                savingsTargetPct = savingsTargetPct,
+                                spendingTargetPct = spendingTargetPct,
+                                onUpdateBudgetGoals = { inc, sav, spnd -> viewModel.updateBudgetGoals(inc, sav, spnd) },
+                                autoBackupNight = autoBackupNight,
+                                onUpdateAutoBackupNight = { enabled -> viewModel.updateAutoBackupNight(enabled) }
                             )
                         }
                     }

@@ -60,4 +60,29 @@ object BackupManager {
             false
         }
     }
+
+    fun backupDatabaseToDefaultFile(context: Context): File? {
+        return try {
+            val db = AppDatabase.getDatabase(context)
+            // Force write-ahead log checkpoint to write all pending transactions to the main db file
+            db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+
+            val dbFile = context.getDatabasePath("kharcha_dekh_db")
+            if (!dbFile.exists()) return null
+
+            val backupDir = File(context.getExternalFilesDir(null), "backups")
+            if (!backupDir.exists()) backupDir.mkdirs()
+
+            val backupFile = File(backupDir, "kharchadekh_auto_backup.db")
+            backupFile.outputStream().use { outputStream ->
+                dbFile.inputStream().use { inputStream ->
+                    inputStream.copyTo(outputStream)
+                }
+            }
+            backupFile
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
 }

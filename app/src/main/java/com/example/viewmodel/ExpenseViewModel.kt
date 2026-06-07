@@ -89,6 +89,36 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putString("user_name", finalName).apply()
     }
 
+    // Budgeting targets
+    private val _monthlyIncome = MutableStateFlow(prefs.getFloat("monthly_income", 0f).toDouble())
+    val monthlyIncome: StateFlow<Double> = _monthlyIncome.asStateFlow()
+
+    private val _savingsTargetPct = MutableStateFlow(prefs.getInt("savings_target_pct", 20))
+    val savingsTargetPct: StateFlow<Int> = _savingsTargetPct.asStateFlow()
+
+    private val _spendingTargetPct = MutableStateFlow(prefs.getInt("spending_target_pct", 50))
+    val spendingTargetPct: StateFlow<Int> = _spendingTargetPct.asStateFlow()
+
+    fun updateBudgetGoals(income: Double, savingsPct: Int, spendingPct: Int) {
+        _monthlyIncome.value = income
+        _savingsTargetPct.value = savingsPct
+        _spendingTargetPct.value = spendingPct
+        prefs.edit()
+            .putFloat("monthly_income", income.toFloat())
+            .putInt("savings_target_pct", savingsPct)
+            .putInt("spending_target_pct", spendingPct)
+            .apply()
+    }
+
+    // Auto-backup night setting
+    private val _autoBackupNight = MutableStateFlow(prefs.getBoolean("auto_backup_night", false))
+    val autoBackupNight: StateFlow<Boolean> = _autoBackupNight.asStateFlow()
+
+    fun updateAutoBackupNight(enabled: Boolean) {
+        _autoBackupNight.value = enabled
+        prefs.edit().putBoolean("auto_backup_night", enabled).apply()
+    }
+
     init {
         // Schedule daily reminders as per saved time on init (without resetting current delay)
         if (_onboardingState.value == OnboardingState.Completed) {
@@ -241,12 +271,19 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     frequency = recurringFrequency
                 )
             }
+
+            if (categoryId != null && type == "DEBIT") {
+                checkBudgetThresholds(categoryId)
+            }
         }
     }
 
     fun updateTransaction(transaction: Transaction) {
         viewModelScope.launch {
             repository.updateTransaction(transaction)
+            if (transaction.categoryId != null && transaction.type == "DEBIT" && !transaction.isPending) {
+                checkBudgetThresholds(transaction.categoryId)
+            }
         }
     }
 
@@ -282,6 +319,10 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                         paymentMethod = existing.paymentMethod,
                         frequency = recurringFrequency
                     )
+                }
+
+                if (type == "DEBIT") {
+                    checkBudgetThresholds(categoryId)
                 }
             }
         }
@@ -482,6 +523,42 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             totalCredit = totalCredit,
             categoryBreakdown = breakdown
         )
+    }
+
+    private fun getStartOfMonthTimestamp(): Long {
+        val calendar = Calendar.getInstance()
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
+    }
+
+    private suspend fun checkBudgetThresholds(categoryId: Long) {
+        val category = repository.getCategoryById(categoryId) ?: return
+        val limit = category.budgetLimit ?: return
+        if (limit <= 0) return
+
+        val since = getStartOfMonthTimestamp()
+        val spent = repository.getCategorySpentSince(categoryId, since)
+
+        val calendar = Calendar.getInstance()
+        val currentMonthKey = "${calendar.get(Calendar.YEAR)}_${calendar.get(Calendar.MONTH)}"
+
+        val key80 = "budget_alert_80_${categoryId}_$currentMonthKey"
+        val key100 = "budget_alert_100_${categoryId}_$currentMonthKey"
+
+        val alreadyNotified80 = prefs.getBoolean(key80, false)
+        val alreadyNotified100 = prefs.getBoolean(key100, false)
+
+        if (spent >= limit && !alreadyNotified100) {
+            prefs.edit().putBoolean(key100, true).putBoolean(key80, true).apply()
+            ReminderWorker.triggerBudgetNotification(getApplication(), category.name, spent, limit, isExceeded = true)
+        } else if (spent >= limit * 0.8 && spent < limit && !alreadyNotified80) {
+            prefs.edit().putBoolean(key80, true).apply()
+            ReminderWorker.triggerBudgetNotification(getApplication(), category.name, spent, limit, isExceeded = false)
+        }
     }
 
     class Factory(private val application: Application) : ViewModelProvider.Factory {

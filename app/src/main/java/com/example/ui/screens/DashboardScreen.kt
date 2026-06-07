@@ -40,7 +40,10 @@ fun DashboardScreen(
     onDeleteTransaction: (com.example.data.Transaction) -> Unit,
     onNavigateToCategories: () -> Unit,
     onExportCsv: () -> Unit,
-    onExportPdf: () -> Unit
+    onExportPdf: () -> Unit,
+    monthlyIncome: Double,
+    savingsTargetPct: Int,
+    spendingTargetPct: Int
 ) {
     val initials = remember(userName) {
         userName.split(" ")
@@ -123,6 +126,42 @@ fun DashboardScreen(
             }
         }
 
+        // Trust Nudge Banner
+        item {
+            Card(
+                shape = RoundedCornerShape(16.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier.padding(16.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.VerifiedUser,
+                        contentDescription = "Verified Offline",
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Column {
+                        Text(
+                            text = "100% Offline & Private Ledger",
+                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Text(
+                            text = "All transactions are processed and saved strictly on your mobile device. We never sync or share your financial records with any servers.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+
         // Time-box filters row
         item {
             Row(
@@ -159,7 +198,13 @@ fun DashboardScreen(
 
         // Metrics Summary Card
         item {
-            MetricsSummarySection(analytics, categories)
+            MetricsSummarySection(
+                analytics = analytics,
+                categories = categories,
+                monthlyIncome = monthlyIncome,
+                savingsTargetPct = savingsTargetPct,
+                spendingTargetPct = spendingTargetPct
+            )
         }
 
         // Breakdown Chart
@@ -212,30 +257,31 @@ fun DashboardScreen(
                     color = MaterialTheme.colorScheme.onBackground
                 )
                 Row(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
+                    Text(
+                        text = "Share Report:",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
                     IconButton(
                         onClick = onExportCsv,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("export_csv_btn")
+                        modifier = Modifier.size(36.dp).testTag("export_csv_btn")
                     ) {
                         Icon(
                             imageVector = Icons.Default.GridOn,
-                            contentDescription = "Export Excel",
+                            contentDescription = "Share Excel Report",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
                     IconButton(
                         onClick = onExportPdf,
-                        modifier = Modifier
-                            .size(36.dp)
-                            .testTag("export_pdf_btn")
+                        modifier = Modifier.size(36.dp).testTag("export_pdf_btn")
                     ) {
                         Icon(
                             imageVector = Icons.Default.PictureAsPdf,
-                            contentDescription = "Export PDF",
+                            contentDescription = "Share PDF Report",
                             tint = MaterialTheme.colorScheme.primary
                         )
                     }
@@ -276,6 +322,22 @@ fun DashboardScreen(
                     item = item,
                     onEditClicked = { onEnrichTransaction(item.transaction.id) },
                     onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                )
+            }
+        }
+
+        // Made with love branding footer
+        item {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = "Made with 💝 by Ankit Sudegora",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
                 )
             }
         }
@@ -488,7 +550,15 @@ fun BudgetTrackingSection(
 }
 
 @Composable
-fun MetricsSummarySection(analytics: AnalyticsState, categories: List<com.example.data.Category>) {
+fun MetricsSummarySection(
+    analytics: AnalyticsState,
+    categories: List<com.example.data.Category>,
+    monthlyIncome: Double,
+    savingsTargetPct: Int,
+    spendingTargetPct: Int
+) {
+    val totalExpense = analytics.totalExpense
+
     Card(
         shape = RoundedCornerShape(32.dp),
         colors = CardDefaults.cardColors(
@@ -532,7 +602,7 @@ fun MetricsSummarySection(analytics: AnalyticsState, categories: List<com.exampl
                         modifier = Modifier.padding(bottom = 4.dp)
                     )
                     Text(
-                        text = "%,.2f".format(analytics.totalExpense),
+                        text = "%,.2f".format(totalExpense),
                         style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -540,57 +610,155 @@ fun MetricsSummarySection(analytics: AnalyticsState, categories: List<com.exampl
 
                 Spacer(modifier = Modifier.height(20.dp))
 
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Budget Left
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(MaterialTheme.colorScheme.primaryContainer)
-                            .padding(14.dp)
+                if (monthlyIncome > 0.0) {
+                    val targetSavings = monthlyIncome * (savingsTargetPct / 100.0)
+                    val spendingCap = monthlyIncome * (spendingTargetPct / 100.0)
+                    val currentSaved = monthlyIncome - totalExpense
+                    val isSavingsMet = currentSaved >= targetSavings
+                    
+                    val savingsColor = if (isSavingsMet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
+
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        modifier = Modifier.fillMaxWidth()
                     ) {
-                        Column {
-                            Text(
-                                text = "BUDGET LEFT",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            val totalCategoryBudget = categories.filter { it.budgetLimit != null }.sumOf { it.budgetLimit!! }
-                            val actualBudgetLimit = if (totalCategoryBudget > 0.0) totalCategoryBudget else 25000.0
-                            val budgetLeft = (actualBudgetLimit - analytics.totalExpense).coerceAtLeast(0.0)
-                            Text(
-                                text = "₹${"%,.0f".format(budgetLeft)}",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onPrimaryContainer
-                            )
+                        // Savings Target Card
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                .padding(14.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "SAVINGS TARGET (${savingsTargetPct}%)",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                    )
+                                    Text(
+                                        text = if (isSavingsMet) "On Track" else "Under Goal",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = savingsColor
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "₹${"%,.0f".format(currentSaved)} saved of ₹${"%,.0f".format(targetSavings)} target",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = (currentSaved / targetSavings).coerceIn(0.0, 1.0).toFloat(),
+                                    color = savingsColor,
+                                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                                )
+                            }
+                        }
+
+                        // Spending Cap Card
+                        val isOverSpent = totalExpense > spendingCap
+                        val capLeft = (spendingCap - totalExpense).coerceAtLeast(0.0)
+                        val capColor = if (isOverSpent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.secondary
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.secondaryContainer)
+                                .padding(14.dp)
+                        ) {
+                            Column {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = "SPENDING CAP (${spendingTargetPct}%)",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                    )
+                                    Text(
+                                        text = if (isOverSpent) "Limit Exceeded" else "₹${"%,.0f".format(capLeft)} Left",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = capColor
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = "₹${"%,.0f".format(totalExpense)} spent of ₹${"%,.0f".format(spendingCap)} limit",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                LinearProgressIndicator(
+                                    progress = (totalExpense / spendingCap).coerceIn(0.0, 1.0).toFloat(),
+                                    color = capColor,
+                                    trackColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.15f),
+                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                                )
+                            }
                         }
                     }
-
-                    // Daily Avg
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(20.dp))
-                            .background(MaterialTheme.colorScheme.secondaryContainer)
-                            .padding(14.dp)
+                } else {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Column {
-                            Text(
-                                text = "DAILY AVG",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            val dailyAvg = if (analytics.totalExpense > 0) (analytics.totalExpense / 30.0) else 0.0
-                            Text(
-                                text = "₹${"%,.0f".format(dailyAvg)}",
-                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.onSecondaryContainer
-                            )
+                        // Budget Left
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                .padding(14.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = "BUDGET LEFT",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                val totalCategoryBudget = categories.filter { it.budgetLimit != null }.sumOf { it.budgetLimit!! }
+                                val actualBudgetLimit = if (totalCategoryBudget > 0.0) totalCategoryBudget else 25000.0
+                                val budgetLeft = (actualBudgetLimit - totalExpense).coerceAtLeast(0.0)
+                                Text(
+                                    text = "₹${"%,.0f".format(budgetLeft)}",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+
+                        // Daily Avg
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(20.dp))
+                                .background(MaterialTheme.colorScheme.secondaryContainer)
+                                .padding(14.dp)
+                        ) {
+                            Column {
+                                Text(
+                                    text = "DAILY AVG",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 0.5.sp),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                val dailyAvg = if (totalExpense > 0) (totalExpense / 30.0) else 0.0
+                                Text(
+                                    text = "₹${"%,.0f".format(dailyAvg)}",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSecondaryContainer
+                                )
+                            }
                         }
                     }
                 }

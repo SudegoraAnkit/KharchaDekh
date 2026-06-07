@@ -36,6 +36,19 @@ class ReminderWorker(
             triggerReminderNotification()
         }
 
+        // Night auto-backup if enabled (isUnconditional is true only for the evening/night reminder)
+        val prefs = applicationContext.getSharedPreferences("kharchadekh_prefs", Context.MODE_PRIVATE)
+        val autoBackupEnabled = prefs.getBoolean("auto_backup_night", false)
+        if (isUnconditional && autoBackupEnabled) {
+            Log.d("ReminderWorker", "Triggering night auto-backup...")
+            val backupFile = com.example.util.BackupManager.backupDatabaseToDefaultFile(applicationContext)
+            if (backupFile != null) {
+                Log.d("ReminderWorker", "Night auto-backup completed: ${backupFile.absolutePath}")
+            } else {
+                Log.e("ReminderWorker", "Night auto-backup failed.")
+            }
+        }
+
         return Result.success()
     }
 
@@ -151,6 +164,52 @@ class ReminderWorker(
             workManager.cancelUniqueWork("kharchadekh_afternoon_reminder")
             workManager.cancelUniqueWork("kharchadekh_night_reminder")
             Log.d("ReminderWorker", "Cancelled all reminders work")
+        }
+
+        fun triggerBudgetNotification(context: Context, categoryName: String, spent: Double, limit: Double, isExceeded: Boolean) {
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            val channelId = "kharchadekh_budget_alerts"
+
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                val channel = NotificationChannel(
+                    channelId,
+                    "Budget Alerts",
+                    NotificationManager.IMPORTANCE_HIGH
+                ).apply {
+                    description = "Alerts when you approach or exceed your category spending budgets"
+                }
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val intent = Intent(context, MainActivity::class.java).apply {
+                flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK
+            }
+
+            val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            } else {
+                PendingIntent.FLAG_UPDATE_CURRENT
+            }
+
+            val pendingIntent = PendingIntent.getActivity(context, 888, intent, flags)
+
+            val title = if (isExceeded) "⚠️ Budget Exceeded!" else "🚨 Approaching Budget Limit"
+            val text = if (isExceeded) {
+                "You have spent ₹%,.0f of your ₹%,.0f limit in '$categoryName'."
+            } else {
+                "You have spent 80% of your limit (₹%,.0f of ₹%,.0f) in '$categoryName'."
+            }
+
+            val notification = NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(android.R.drawable.ic_dialog_alert)
+                .setContentTitle(title)
+                .setContentText(text.format(spent, limit))
+                .setPriority(NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify(categoryName.hashCode(), notification)
         }
     }
 }
