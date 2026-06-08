@@ -19,14 +19,14 @@ Below is the directory map of the codebase. Click on any folder or key file to n
     *   📄 [KharchaDekh.aab](file:///d:/2026/Project/KharchaDekh/.build-outputs/KharchaDekh.aab) — The signed release Android App Bundle (AAB) for Google Play Console uploading.
     *   📄 [release_notes.txt](file:///d:/2026/Project/KharchaDekh/.build-outputs/release_notes.txt) — Play Console upload release logs (en-GB format).
 *   📂 **[app/](file:///d:/2026/Project/KharchaDekh/app/)** — Main Android Application Module.
-    *   📂 **[src/main/java/com/example/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/)** — Kotlin source code packages.
-        *   📂 [data/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/data/) — Room DB schema (`AppDatabase.kt`), entity definitions (`Transaction`, `Category`, `RecurringSchedule`), and repository.
-        *   📂 [service/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/service/) — Contains the background `TransactionNotificationListener` service which runs on-device notification parsing.
-        *   📂 [ui/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/ui/) — Declarative Jetpack Compose components, theme styles (`Color.kt`, `Theme.kt`), and UI screens.
-        *   📂 [util/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/util/) — Business tools, including database zipping/restoring (`BackupManager.kt`) and native PDF/CSV generators (`Exporter.kt`).
-        *   📂 [worker/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/worker/) — WorkManager scheduling jobs (`ReminderWorker.kt`) for 4x daily checkpoints.
-        *   📂 [viewmodel/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/viewmodel/) — State flow managers (`ExpenseViewModel.kt`) bridging database actions to the screens.
-        *   📄 [MainActivity.kt](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/MainActivity.kt) — Core Launcher Activity and SAF result callback listeners.
+    *   📂 **[src/main/java/com/ankitsudegora/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/)** — Kotlin source code packages.
+        *   📂 [data/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/data/) — Room DB schema (`AppDatabase.kt`), entity definitions (`Transaction`, `Category`, `RecurringSchedule`), and repository.
+        *   📂 [service/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/service/) — Contains the background `TransactionNotificationListener` service which runs on-device notification parsing.
+        *   📂 [ui/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/ui/) — Declarative Jetpack Compose components, theme styles (`Color.kt`, `Theme.kt`), and UI screens.
+        *   📂 [util/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/util/) — Business tools, including database zipping/restoring (`BackupManager.kt`) and native PDF/CSV generators (`Exporter.kt`).
+        *   📂 [worker/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/worker/) — WorkManager scheduling jobs (`ReminderWorker.kt`) for 4x daily checkpoints.
+        *   📂 [viewmodel/](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/viewmodel/) — State flow managers (`ExpenseViewModel.kt`) bridging database actions to the screens.
+        *   📄 [MainActivity.kt](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/MainActivity.kt) — Core Launcher Activity and SAF result callback listeners.
     *   📄 [AndroidManifest.xml](file:///d:/2026/Project/KharchaDekh/app/src/main/AndroidManifest.xml) — Defines system permissions, file providers, and service hooks.
     *   📄 [build.gradle.kts](file:///d:/2026/Project/KharchaDekh/app/build.gradle.kts) — Module configuration detailing app ID, versions, dependencies, and signing targets.
 *   📂 **[documentation/](file:///d:/2026/Project/KharchaDekh/documentation/)** — In-depth technical architecture and personal learnings.

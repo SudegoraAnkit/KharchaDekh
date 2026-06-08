@@ -1,0 +1,698 @@
+package com.ankitsudegora.viewmodel
+
+import android.app.Application
+import android.content.Context
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.viewModelScope
+import com.ankitsudegora.R
+import com.ankitsudegora.data.*
+import com.ankitsudegora.worker.ReminderWorker
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
+import java.util.*
+
+sealed interface OnboardingState {
+    object Required : OnboardingState
+    object Completed : OnboardingState
+}
+
+enum class TimeboxFilter {
+    DAILY, WEEKLY, MONTHLY, YEARLY
+}
+
+data class CategoryUsage(
+    val category: Category,
+    val amount: Double,
+    val percentage: Float
+)
+
+data class AnalyticsState(
+    val totalExpense: Double = 0.0,
+    val totalDebit: Double = 0.0,
+    val totalCredit: Double = 0.0,
+    val categoryBreakdown: List<CategoryUsage> = emptyList()
+)
+
+data class ForecastAllowance(
+    val dailyAllowance: Double = 0.0,
+    val weeklyAllowance: Double = 0.0,
+    val isOverspent: Boolean = false,
+    val remainingDays: Int = 1,
+    val fixedCommitments: Double = 0.0
+)
+
+class ExpenseViewModel(application: Application) : AndroidViewModel(application) {
+
+    private val db = AppDatabase.getDatabase(application)
+    private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao(), db.recurringScheduleDao())
+    private val prefs = application.getSharedPreferences("kharchadekh_prefs", Context.MODE_PRIVATE)
+
+    // User configurations & settings initialized first to avoid sequential evaluation order issues
+    private val _billingCycleStartDay = MutableStateFlow(prefs.getInt("billing_cycle_start_day", 1))
+    val billingCycleStartDay: StateFlow<Int> = _billingCycleStartDay.asStateFlow()
+
+    private val _monthlyIncome = MutableStateFlow(prefs.getFloat("monthly_income", 0f).toDouble())
+    val monthlyIncome: StateFlow<Double> = _monthlyIncome.asStateFlow()
+
+    private val _savingsTargetPct = MutableStateFlow(prefs.getInt("savings_target_pct", 20))
+    val savingsTargetPct: StateFlow<Int> = _savingsTargetPct.asStateFlow()
+
+    private val _spendingTargetPct = MutableStateFlow(prefs.getInt("spending_target_pct", 50))
+    val spendingTargetPct: StateFlow<Int> = _spendingTargetPct.asStateFlow()
+
+    private val _reminderHour = MutableStateFlow(prefs.getInt("reminder_hour", 20))
+    val reminderHour: StateFlow<Int> = _reminderHour.asStateFlow()
+
+    private val _reminderMinute = MutableStateFlow(prefs.getInt("reminder_minute", 30))
+    val reminderMinute: StateFlow<Int> = _reminderMinute.asStateFlow()
+
+    private val _userName = MutableStateFlow(prefs.getString("user_name", "User") ?: "User")
+    val userName: StateFlow<String> = _userName.asStateFlow()
+
+    private val _autoBackupNight = MutableStateFlow(prefs.getBoolean("auto_backup_night", false))
+    val autoBackupNight: StateFlow<Boolean> = _autoBackupNight.asStateFlow()
+
+    // Onboarding DPDP consent state
+    private val _onboardingState = MutableStateFlow<OnboardingState>(
+        if (prefs.getBoolean("dpdp_consent_granted", false)) OnboardingState.Completed else OnboardingState.Required
+    )
+    val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
+
+    // Active transactions & categories
+    val allTransactions: StateFlow<List<TransactionWithCategory>> = repository.allTransactions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val pendingTransactions: StateFlow<List<TransactionWithCategory>> = repository.pendingTransactions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allCategories: StateFlow<List<Category>> = repository.allCategories
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allSchedules: StateFlow<List<RecurringSchedule>> = repository.allSchedules
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    // UI state for filter tab selection
+    private val _timeboxFilter = MutableStateFlow(TimeboxFilter.MONTHLY)
+    val timeboxFilter: StateFlow<TimeboxFilter> = _timeboxFilter.asStateFlow()
+
+    // Analytics state calculated reactively based on transactions and selected filter
+    val analyticsState: StateFlow<AnalyticsState> = combine(
+        allTransactions,
+        _timeboxFilter
+    ) { txns, filter ->
+        calculateAnalytics(txns, filter)
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AnalyticsState())
+
+    // Billing Cycle Start Day update
+
+    fun updateBillingCycleStartDay(day: Int) {
+        val validDay = day.coerceIn(1, 28)
+        _billingCycleStartDay.value = validDay
+        prefs.edit().putInt("billing_cycle_start_day", validDay).apply()
+    }
+
+    // Billing-cycle specific spends for budgets (always reflects current billing cycle)
+    val monthlyCategorySpends: StateFlow<Map<Long, Double>> = combine(
+        allTransactions,
+        _billingCycleStartDay
+    ) { txns, startDay ->
+        val startOfCycle = getStartOfBillingCycleTimestamp(startDay)
+        txns.filter {
+            !it.transaction.isPending &&
+            it.transaction.type == "DEBIT" &&
+            it.transaction.timestamp >= startOfCycle
+        }.groupBy { it.transaction.categoryId ?: -1L }
+         .mapValues { entry -> entry.value.sumOf { it.transaction.amount } }
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
+
+    // Safe to Spend allowance forecasting
+    val forecastAllowance: StateFlow<ForecastAllowance> = combine(
+        allTransactions,
+        allSchedules,
+        _monthlyIncome,
+        _savingsTargetPct,
+        _billingCycleStartDay
+    ) { txns, schedules, income, savingsPct, startDay ->
+        if (income <= 0.0) {
+            return@combine ForecastAllowance()
+        }
+        val startOfCycle = getStartOfBillingCycleTimestamp(startDay)
+        val remainingDays = getRemainingDaysInBillingCycle(startDay)
+        
+        // Sum total spent in current cycle
+        val totalSpent = txns.filter {
+            !it.transaction.isPending &&
+            it.transaction.type == "DEBIT" &&
+            it.transaction.timestamp >= startOfCycle
+        }.sumOf { it.transaction.amount }
+        
+        val targetSavings = income * (savingsPct / 100.0)
+        
+        // Sum active fixed commitments (Rent, Utilities, EMI etc.)
+        val fixedCommitments = schedules.filter { it.isActive }.sumOf { s ->
+            when (s.frequency.uppercase()) {
+                "DAILY" -> s.amount * 30.0
+                "WEEKLY" -> s.amount * 4.33
+                "MONTHLY" -> s.amount
+                "YEARLY" -> s.amount / 12.0
+                else -> s.amount
+            }
+        }
+        
+        val discretionaryLeft = income - targetSavings - fixedCommitments - totalSpent
+        val daily = (discretionaryLeft / remainingDays).coerceAtLeast(0.0)
+        val weekly = daily * 7.0
+        
+        ForecastAllowance(
+            dailyAllowance = daily,
+            weeklyAllowance = weekly,
+            isOverspent = discretionaryLeft < 0.0,
+            remainingDays = remainingDays,
+            fixedCommitments = fixedCommitments
+        )
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ForecastAllowance())
+
+    // Reminder and Profile updates
+
+    fun updateUserName(name: String) {
+        val trimmed = name.trim()
+        val finalName = if (trimmed.isBlank()) "User" else trimmed
+        _userName.value = finalName
+        prefs.edit().putString("user_name", finalName).apply()
+    }
+
+    // Budgeting targets
+    // Budgeting goals updates
+
+    fun updateBudgetGoals(income: Double, savingsPct: Int, spendingPct: Int) {
+        _monthlyIncome.value = income
+        _savingsTargetPct.value = savingsPct
+        _spendingTargetPct.value = spendingPct
+        prefs.edit()
+            .putFloat("monthly_income", income.toFloat())
+            .putInt("savings_target_pct", savingsPct)
+            .putInt("spending_target_pct", spendingPct)
+            .apply()
+    }
+
+    // Auto-backup night update
+
+    fun updateAutoBackupNight(enabled: Boolean) {
+        _autoBackupNight.value = enabled
+        prefs.edit().putBoolean("auto_backup_night", enabled).apply()
+    }
+
+    init {
+        // Schedule daily reminders as per saved time on init (without resetting current delay)
+        if (_onboardingState.value == OnboardingState.Completed) {
+            setupWorkReminder(forceRestart = false)
+        }
+        viewModelScope.launch {
+            processRecurringSchedules()
+        }
+    }
+
+    private suspend fun processRecurringSchedules() {
+        val schedules = repository.getActiveSchedules()
+        val now = System.currentTimeMillis()
+        schedules.forEach { s ->
+            var nextTime = s.nextTriggerTime
+            var updatedSchedule = s
+            while (now >= nextTime) {
+                val transaction = Transaction(
+                    amount = s.amount,
+                    type = s.type,
+                    merchant = s.merchant,
+                    categoryId = s.categoryId,
+                    notes = s.notes ?: "Scheduled payment auto-trigger",
+                    timestamp = nextTime,
+                    paymentMethod = s.paymentMethod,
+                    isPending = true,  // Requires manual review
+                    source = "RECURRING"
+                )
+                repository.insertTransaction(transaction)
+
+                val prevTime = nextTime
+                nextTime = calculateNextTriggerTime(s.frequency, prevTime)
+                updatedSchedule = updatedSchedule.copy(lastTriggered = prevTime, nextTriggerTime = nextTime)
+            }
+            if (updatedSchedule != s) {
+                repository.updateSchedule(updatedSchedule)
+            }
+        }
+    }
+
+    private fun calculateNextTriggerTime(frequency: String, fromTime: Long): Long {
+        val cal = Calendar.getInstance()
+        cal.timeInMillis = fromTime
+        when (frequency.uppercase()) {
+            "DAILY" -> cal.add(Calendar.DAY_OF_YEAR, 1)
+            "WEEKLY" -> cal.add(Calendar.WEEK_OF_YEAR, 1)
+            "MONTHLY" -> cal.add(Calendar.MONTH, 1)
+            "YEARLY" -> cal.add(Calendar.YEAR, 1)
+            else -> cal.add(Calendar.MONTH, 1)
+        }
+        return cal.timeInMillis
+    }
+
+    fun completeOnboarding(consent: Boolean) {
+        prefs.edit().putBoolean("dpdp_consent_granted", consent).apply()
+        _onboardingState.value = if (consent) OnboardingState.Completed else OnboardingState.Required
+        if (consent) {
+            setupWorkReminder()
+        }
+    }
+
+    fun resetOnboarding() {
+        prefs.edit().putBoolean("dpdp_consent_granted", false).apply()
+        _onboardingState.value = OnboardingState.Required
+        ReminderWorker.cancelAllReminders(getApplication())
+    }
+
+    fun setTimeboxFilter(filter: TimeboxFilter) {
+        _timeboxFilter.value = filter
+    }
+
+    fun updateCategoryBudget(category: Category, budgetLimit: Double?) {
+        viewModelScope.launch {
+            repository.updateCategory(category.copy(budgetLimit = budgetLimit))
+        }
+    }
+
+    fun addRecurringSchedule(
+        amount: Double,
+        type: String,
+        merchant: String,
+        categoryId: Long?,
+        notes: String?,
+        paymentMethod: String,
+        frequency: String
+    ) {
+        viewModelScope.launch {
+            val now = System.currentTimeMillis()
+            val nextTime = calculateNextTriggerTime(frequency, now)
+            val schedule = RecurringSchedule(
+                amount = amount,
+                type = type,
+                merchant = merchant,
+                categoryId = categoryId,
+                notes = notes,
+                paymentMethod = paymentMethod,
+                frequency = frequency.uppercase(),
+                lastTriggered = now,
+                nextTriggerTime = nextTime,
+                isActive = true
+            )
+            repository.insertSchedule(schedule)
+        }
+    }
+
+    fun deleteRecurringSchedule(schedule: RecurringSchedule) {
+        viewModelScope.launch {
+            repository.deleteSchedule(schedule)
+        }
+    }
+
+    fun toggleRecurringSchedule(schedule: RecurringSchedule) {
+        viewModelScope.launch {
+            repository.updateSchedule(schedule.copy(isActive = !schedule.isActive))
+        }
+    }
+
+    fun addManualTransaction(
+        amount: Double,
+        type: String,
+        merchant: String,
+        categoryId: Long?,
+        notes: String?,
+        paymentMethod: String,
+        timestamp: Long = System.currentTimeMillis(),
+        recurringFrequency: String? = null
+    ) {
+        viewModelScope.launch {
+            val transaction = Transaction(
+                amount = amount,
+                type = type,
+                merchant = merchant.ifBlank { "Cash Expense" },
+                categoryId = categoryId,
+                notes = notes,
+                timestamp = timestamp,
+                paymentMethod = paymentMethod,
+                isPending = false, // MANUAL log is never pending
+                source = "MANUAL"
+            )
+            repository.insertTransaction(transaction)
+
+            if (!recurringFrequency.isNullOrEmpty()) {
+                addRecurringSchedule(
+                    amount = amount,
+                    type = type,
+                    merchant = merchant.ifBlank { "Cash Expense" },
+                    categoryId = categoryId,
+                    notes = notes,
+                    paymentMethod = paymentMethod,
+                    frequency = recurringFrequency
+                )
+            }
+
+            if (categoryId != null && type == "DEBIT") {
+                checkBudgetThresholds(categoryId)
+            }
+        }
+    }
+
+    fun updateTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.updateTransaction(transaction)
+            if (transaction.categoryId != null && transaction.type == "DEBIT" && !transaction.isPending) {
+                checkBudgetThresholds(transaction.categoryId)
+            }
+        }
+    }
+
+    fun finalizeSmsTransaction(
+        id: Long,
+        categoryId: Long,
+        notes: String?,
+        amount: Double,
+        merchant: String,
+        type: String,
+        recurringFrequency: String? = null
+    ) {
+        viewModelScope.launch {
+            val existing = repository.getTransactionById(id)
+            if (existing != null) {
+                val updated = existing.copy(
+                    categoryId = categoryId,
+                    notes = notes,
+                    amount = amount,
+                    merchant = merchant.ifBlank { existing.merchant },
+                    type = type,
+                    isPending = false
+                )
+                repository.updateTransaction(updated)
+
+                if (!recurringFrequency.isNullOrEmpty()) {
+                    addRecurringSchedule(
+                        amount = amount,
+                        type = type,
+                        merchant = merchant.ifBlank { existing.merchant },
+                        categoryId = categoryId,
+                        notes = notes,
+                        paymentMethod = existing.paymentMethod,
+                        frequency = recurringFrequency
+                    )
+                }
+
+                if (type == "DEBIT") {
+                    checkBudgetThresholds(categoryId)
+                }
+            }
+        }
+    }
+
+    fun deleteTransaction(transaction: Transaction) {
+        viewModelScope.launch {
+            repository.deleteTransaction(transaction)
+        }
+    }
+
+    suspend fun getTransactionById(id: Long): Transaction? {
+        return repository.getTransactionById(id)
+    }
+
+    fun simulateSmsTransaction(body: String) {
+        viewModelScope.launch {
+            val bodyLower = body.lowercase()
+            val isDebit = bodyLower.contains("debited") || bodyLower.contains("withdrawn") || bodyLower.contains("spent") || bodyLower.contains("paid") || bodyLower.contains("sent")
+            val isCredit = bodyLower.contains("credited") || bodyLower.contains("received") || bodyLower.contains("added")
+            val type = if (isDebit) "DEBIT" else "CREDIT"
+            
+            val amountRegex = Regex("(?:rs\\.?|inr|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", RegexOption.IGNORE_CASE)
+            val amountMatch = amountRegex.find(body)
+            val amountStr = amountMatch?.groupValues?.get(1)?.replace(",", "")
+            val amount = amountStr?.toDoubleOrNull() ?: 250.0
+
+            val merchantRegex = Regex("(?:at|to|from|vpa|into|thru)\\s+([a-zA-Z0-9]{3,20})", RegexOption.IGNORE_CASE)
+            val merchantMatch = merchantRegex.find(body)
+            var merchant = merchantMatch?.groupValues?.get(1)?.trim() ?: "Simulated Merchant"
+            if (merchant.isBlank() || merchant.all { it.isDigit() }) {
+                merchant = "Simulated Merchant"
+            } else {
+                merchant = merchant.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
+            }
+
+            val transaction = Transaction(
+                amount = amount,
+                type = type,
+                merchant = merchant,
+                paymentMethod = if (type == "DEBIT") "UPI" else "NETBANKING",
+                isPending = true,
+                source = "NOTIFICATION",
+                smsSenderId = "ALERT-SIMULATED",
+                timestamp = System.currentTimeMillis()
+            )
+            val id = repository.insertTransaction(transaction)
+
+            val context = getApplication<Application>()
+            val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as android.app.NotificationManager
+            val channelId = "kharchadekh_notifications"
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                val channel = android.app.NotificationChannel(
+                    channelId,
+                    "Transaction Alerts",
+                    android.app.NotificationManager.IMPORTANCE_HIGH
+                )
+                notificationManager.createNotificationChannel(channel)
+            }
+
+            val intent = android.content.Intent(context, com.ankitsudegora.MainActivity::class.java).apply {
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK or android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK
+                putExtra("EXTRA_TRANSACTION_ID", id)
+            }
+
+            val flags = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+            } else {
+                android.app.PendingIntent.FLAG_UPDATE_CURRENT
+            }
+
+            val pendingIntent = android.app.PendingIntent.getActivity(context, id.toInt(), intent, flags)
+            val emoji = if (type == "DEBIT") "💸" else "🏦"
+            val label = if (type == "DEBIT") "Spent" else "Received"
+
+            val notification = androidx.core.app.NotificationCompat.Builder(context, channelId)
+                .setSmallIcon(R.drawable.ic_notification)
+                .setContentTitle("Simulated Alert Auto-Parsed")
+                .setContentText("$label ₹$amount at $merchant? Tap to categorize it. $emoji")
+                .setPriority(androidx.core.app.NotificationCompat.PRIORITY_HIGH)
+                .setAutoCancel(true)
+                .setContentIntent(pendingIntent)
+                .build()
+
+            notificationManager.notify(id.toInt(), notification)
+        }
+    }
+
+    fun addCustomCategory(name: String, iconResName: String = "category") {
+        viewModelScope.launch {
+            if (name.isNotBlank()) {
+                val category = Category(
+                    name = name.trim(),
+                    iconResName = iconResName,
+                    isCustom = true
+                )
+                repository.insertCategory(category)
+            }
+        }
+    }
+
+    fun deleteCategory(category: Category) {
+        viewModelScope.launch {
+            repository.deleteCategory(category)
+        }
+    }
+
+    fun updateReminderTime(hour: Int, minute: Int) {
+        _reminderHour.value = hour
+        _reminderMinute.value = minute
+        prefs.edit()
+            .putInt("reminder_hour", hour)
+            .putInt("reminder_minute", minute)
+            .apply()
+        setupWorkReminder(forceRestart = true)
+    }
+
+    private fun setupWorkReminder(forceRestart: Boolean = false) {
+        ReminderWorker.scheduleAllReminders(
+            getApplication(),
+            _reminderHour.value,
+            _reminderMinute.value,
+            forceRestart
+        )
+    }
+
+    private fun calculateAnalytics(
+        txns: List<TransactionWithCategory>,
+        filter: TimeboxFilter
+    ): AnalyticsState {
+        val calendar = Calendar.getInstance()
+        val now = System.currentTimeMillis()
+
+        val filteredTxns = txns.filter { item ->
+            // Exclude pending transactions from solid stats if desired (or keep them). 
+            // In typical expense tracking, we exclude unresolved ones or include them. 
+            // Let's include everything that has been finalized, or calculate for all finalized transactions.
+            if (item.transaction.isPending) return@filter false
+
+            val itemTime = item.transaction.timestamp
+            calendar.timeInMillis = now
+            val currentYear = calendar.get(Calendar.YEAR)
+            val currentMonth = calendar.get(Calendar.MONTH)
+            val currentDay = calendar.get(Calendar.DAY_OF_YEAR)
+
+            calendar.timeInMillis = itemTime
+            val itemYear = calendar.get(Calendar.YEAR)
+            val itemMonth = calendar.get(Calendar.MONTH)
+            val itemDay = calendar.get(Calendar.DAY_OF_YEAR)
+
+            when (filter) {
+                TimeboxFilter.DAILY -> {
+                    currentYear == itemYear && currentDay == itemDay
+                }
+                TimeboxFilter.WEEKLY -> {
+                    // Check if it's within the preceding 7 days
+                    now - itemTime <= 7L * 24 * 60 * 60 * 1000
+                }
+                TimeboxFilter.MONTHLY -> {
+                    currentYear == itemYear && currentMonth == itemMonth
+                }
+                TimeboxFilter.YEARLY -> {
+                    currentYear == itemYear
+                }
+            }
+        }
+
+        var totalExpense = 0.0
+        var totalDebit = 0.0
+        var totalCredit = 0.0
+        val categoryMap = mutableMapOf<Category, Double>()
+
+        filteredTxns.forEach { item ->
+            val amount = item.transaction.amount
+            if (item.transaction.type == "DEBIT") {
+                totalDebit += amount
+                totalExpense += amount // Expense is strictly Debits
+
+                val cat = item.category ?: Category(name = "Uncategorized", iconResName = "category")
+                categoryMap[cat] = categoryMap.getOrDefault(cat, 0.0) + amount
+            } else {
+                totalCredit += amount
+            }
+        }
+
+        val breakdown = categoryMap.map { (cat, amount) ->
+            CategoryUsage(
+                category = cat,
+                amount = amount,
+                percentage = if (totalExpense > 0) ((amount / totalExpense) * 100).toFloat() else 0f
+            )
+        }.sortedByDescending { it.amount }
+
+        return AnalyticsState(
+            totalExpense = totalExpense,
+            totalDebit = totalDebit,
+            totalCredit = totalCredit,
+            categoryBreakdown = breakdown
+        )
+    }
+
+    private fun getStartOfMonthTimestamp(): Long {
+        val calendar = Calendar.getInstance()
+        calendar.set(Calendar.DAY_OF_MONTH, 1)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
+    }
+
+    private suspend fun checkBudgetThresholds(categoryId: Long) {
+        val category = repository.getCategoryById(categoryId) ?: return
+        val limit = category.budgetLimit ?: return
+        if (limit <= 0) return
+
+        val since = getStartOfBillingCycleTimestamp(_billingCycleStartDay.value)
+        val spent = repository.getCategorySpentSince(categoryId, since)
+
+        val calendar = Calendar.getInstance()
+        val currentMonthKey = "${calendar.get(Calendar.YEAR)}_${calendar.get(Calendar.MONTH)}"
+
+        val key80 = "budget_alert_80_${categoryId}_$currentMonthKey"
+        val key100 = "budget_alert_100_${categoryId}_$currentMonthKey"
+
+        val alreadyNotified80 = prefs.getBoolean(key80, false)
+        val alreadyNotified100 = prefs.getBoolean(key100, false)
+
+        if (spent >= limit && !alreadyNotified100) {
+            prefs.edit().putBoolean(key100, true).putBoolean(key80, true).apply()
+            ReminderWorker.triggerBudgetNotification(getApplication(), category.name, spent, limit, isExceeded = true)
+        } else if (spent >= limit * 0.8 && spent < limit && !alreadyNotified80) {
+            prefs.edit().putBoolean(key80, true).apply()
+            ReminderWorker.triggerBudgetNotification(getApplication(), category.name, spent, limit, isExceeded = false)
+        }
+    }
+
+    class Factory(private val application: Application) : ViewModelProvider.Factory {
+        override fun <T : ViewModel> create(modelClass: Class<T>): T {
+            if (modelClass.isAssignableFrom(ExpenseViewModel::class.java)) {
+                @Suppress("UNCHECKED_CAST")
+                return ExpenseViewModel(application) as T
+            }
+            throw IllegalArgumentException("Unknown ViewModel class")
+        }
+    }
+
+    fun getStartOfBillingCycleTimestamp(startDay: Int): Long {
+        val calendar = Calendar.getInstance()
+        val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
+        
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        
+        if (currentDay >= startDay) {
+            calendar.set(Calendar.DAY_OF_MONTH, startDay)
+        } else {
+            calendar.add(Calendar.MONTH, -1)
+            val maxDays = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+            calendar.set(Calendar.DAY_OF_MONTH, startDay.coerceAtMost(maxDays))
+        }
+        return calendar.timeInMillis
+    }
+
+    fun getRemainingDaysInBillingCycle(startDay: Int): Int {
+        val calendar = Calendar.getInstance()
+        val now = calendar.timeInMillis
+        
+        val nextCycle = Calendar.getInstance()
+        val currentDay = nextCycle.get(Calendar.DAY_OF_MONTH)
+        if (currentDay >= startDay) {
+            nextCycle.add(Calendar.MONTH, 1)
+        }
+        val maxDays = nextCycle.getActualMaximum(Calendar.DAY_OF_MONTH)
+        nextCycle.set(Calendar.DAY_OF_MONTH, startDay.coerceAtMost(maxDays))
+        nextCycle.set(Calendar.HOUR_OF_DAY, 0)
+        nextCycle.set(Calendar.MINUTE, 0)
+        nextCycle.set(Calendar.SECOND, 0)
+        nextCycle.set(Calendar.MILLISECOND, 0)
+        
+        val diffMs = nextCycle.timeInMillis - now
+        val days = (diffMs / (24L * 60 * 60 * 1000)).toInt()
+        return days.coerceAtLeast(1)
+    }
+}
