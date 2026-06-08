@@ -18,7 +18,7 @@ This document outlines the major technical hurdles I encountered while building 
 *   **The Issue**: When users triggered a database backup, the output SQLite database was missing recent entries or became corrupted on restore.
 *   **Why it occurred**: Room uses Write-Ahead Logging (WAL) by default. In WAL mode, SQLite writes new transactions to auxiliary journal files (`kharcha_dekh_db-wal` and `kharcha_dekh_db-shm`) instead of directly modifying the main database file. Backing up the main database file by streaming it directly resulted in incomplete backups since active changes remained cached in the WAL journals.
 *   **My Resolution**:
-    1.  I integrated a database checkpoint mechanism before backup in [BackupManager.kt](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/example/util/BackupManager.kt). I force a full WAL checkpoint to write cached logs to the main database file before copying:
+    1.  I integrated a database checkpoint mechanism before backup in [BackupManager.kt](file:///d:/2026/Project/KharchaDekh/app/src/main/java/com/ankitsudegora/util/BackupManager.kt). I force a full WAL checkpoint to write cached logs to the main database file before copying:
         ```kotlin
         db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
         ```

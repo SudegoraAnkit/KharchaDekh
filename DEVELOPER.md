@@ -9,7 +9,7 @@ Welcome to the KharchaDekh developer guide. This document provides an overview o
 KharchaDekh is built using modern Android development practices, utilizing **Jetpack Compose** for UI and following the **MVVM (Model-View-ViewModel)** architectural pattern.
 
 ```
-com.example/
+com.ankitsudegora/
 │
 ├── data/              # Room Database, DAOs, Entities, and Repository
 │   ├── AppDatabase.kt
