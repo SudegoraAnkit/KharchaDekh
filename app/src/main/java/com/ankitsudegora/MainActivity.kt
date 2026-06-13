@@ -6,12 +6,18 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.ankitsudegora.ui.screens.*
 import com.ankitsudegora.ui.theme.KharchaDekhTheme
@@ -20,10 +26,18 @@ import android.net.Uri
 import android.widget.Toast
 import androidx.activity.result.contract.ActivityResultContracts
 import com.ankitsudegora.util.BackupManager
+import com.ankitsudegora.util.RestoreResult
 import com.ankitsudegora.data.TransactionWithCategory
+import androidx.lifecycle.lifecycleScope
+import kotlinx.coroutines.launch
+import java.util.*
 
 enum class AppTab {
     DASHBOARD, CALENDAR, ADD_MANUAL, CATEGORIES, SETTINGS
+}
+
+enum class ExportScope {
+    THIS_WEEK, THIS_MONTH, THIS_YEAR, CUSTOM
 }
 
 class MainActivity : ComponentActivity() {
@@ -32,17 +46,17 @@ class MainActivity : ComponentActivity() {
         ExpenseViewModel.Factory(application)
     }
 
-    private val activeEnrichIdState = mutableStateOf<Long?>(null)
-
     private val createDocLauncher = registerForActivityResult(
         ActivityResultContracts.CreateDocument("application/octet-stream")
     ) { uri: Uri? ->
         if (uri != null) {
-            val success = BackupManager.backupDatabase(this, uri)
-            if (success) {
-                Toast.makeText(this, "Database backup created successfully!", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(this, "Failed to create database backup.", Toast.LENGTH_LONG).show()
+            lifecycleScope.launch {
+                val success = BackupManager.backupDatabase(this@MainActivity, uri)
+                if (success) {
+                    Toast.makeText(this@MainActivity, "Database backup created successfully!", Toast.LENGTH_LONG).show()
+                } else {
+                    Toast.makeText(this@MainActivity, "Failed to create database backup.", Toast.LENGTH_LONG).show()
+                }
             }
         }
     }
@@ -51,11 +65,19 @@ class MainActivity : ComponentActivity() {
         ActivityResultContracts.OpenDocument()
     ) { uri: Uri? ->
         if (uri != null) {
-            val success = BackupManager.restoreDatabase(this, uri)
-            if (success) {
-                Toast.makeText(this, "Database restored successfully! Restarting app...", Toast.LENGTH_LONG).show()
-            } else {
-                Toast.makeText(this, "Failed to restore database backup.", Toast.LENGTH_LONG).show()
+            lifecycleScope.launch {
+                when (val result = BackupManager.restoreDatabase(this@MainActivity, uri)) {
+                    is RestoreResult.Success -> {
+                        Toast.makeText(this@MainActivity, "Database restored successfully! Restarting app...", Toast.LENGTH_LONG).show()
+                    }
+                    is RestoreResult.Failure -> {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "Failed to restore database: ${result.message} (${result.errorCode})",
+                            Toast.LENGTH_LONG
+                        ).show()
+                    }
+                }
             }
         }
     }
@@ -70,7 +92,6 @@ class MainActivity : ComponentActivity() {
         setContent {
             KharchaDekhTheme {
                 val onboardingState by viewModel.onboardingState.collectAsStateWithLifecycle()
-                val userName by viewModel.userName.collectAsStateWithLifecycle()
 
                 if (onboardingState == OnboardingState.Required) {
                     OnboardingScreen(
@@ -83,7 +104,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 startActivity(settingsIntent)
                             } catch (e: Exception) {
-                                android.widget.Toast.makeText(this, "Could not open notification settings. Please enable manually in settings.", android.widget.Toast.LENGTH_LONG).show()
+                                Toast.makeText(this, "Could not open notification settings. Please enable manually in settings.", Toast.LENGTH_LONG).show()
                             }
                         },
                         onManualOnlyClicked = { 
@@ -105,15 +126,18 @@ class MainActivity : ComponentActivity() {
     private fun handleIntentRouting(intent: android.content.Intent?) {
         val enrichId = intent?.getLongExtra("EXTRA_TRANSACTION_ID", -1L) ?: -1L
         if (enrichId != -1L) {
-            activeEnrichIdState.value = enrichId
+            viewModel.setActiveEnrichId(enrichId)
         }
     }
 
+    @OptIn(ExperimentalMaterial3Api::class)
     @Composable
     fun MainAppScaffold() {
         var currentTab by remember { mutableStateOf(AppTab.DASHBOARD) }
         var showFilterScreen by remember { mutableStateOf(false) }
-        val activeEnrichId by activeEnrichIdState
+        
+        // Navigation states integrated into Viewmodel StateFlow to survive configuration changes
+        val activeEnrichId by viewModel.activeEnrichId.collectAsStateWithLifecycle()
 
         val analytics by viewModel.analyticsState.collectAsStateWithLifecycle()
         val pendingTransactions by viewModel.pendingTransactions.collectAsStateWithLifecycle()
@@ -134,6 +158,24 @@ class MainActivity : ComponentActivity() {
         // Collect active recurring schedules Flow
         val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
 
+        // Export State Variables
+        var transactionsForExport by remember { mutableStateOf<List<TransactionWithCategory>>(emptyList()) }
+        var exportFormatType by remember { mutableStateOf("CSV") }
+        var displayExportDialog by remember { mutableStateOf(false) }
+        var displayCustomDatePicker by remember { mutableStateOf(false) }
+
+        val onExportCsvClick: (List<TransactionWithCategory>) -> Unit = { txns ->
+            transactionsForExport = txns
+            exportFormatType = "CSV"
+            displayExportDialog = true
+        }
+
+        val onExportPdfClick: (List<TransactionWithCategory>) -> Unit = { txns ->
+            transactionsForExport = txns
+            exportFormatType = "PDF"
+            displayExportDialog = true
+        }
+
         if (showFilterScreen) {
             AdvancedFilterScreen(
                 categories = categories,
@@ -141,7 +183,7 @@ class MainActivity : ComponentActivity() {
                 onNavigateBack = { showFilterScreen = false },
                 onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
                 onEditTransaction = { id ->
-                    activeEnrichIdState.value = id
+                    viewModel.setActiveEnrichId(id)
                     showFilterScreen = false
                 }
             )
@@ -152,10 +194,10 @@ class MainActivity : ComponentActivity() {
                 onGetTransaction = { id -> viewModel.getTransactionById(id) },
                 onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq ->
                     viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type, recurringFreq)
-                    activeEnrichIdState.value = null // Close enriching panel
+                    viewModel.setActiveEnrichId(null) // Close enriching panel
                 },
                 onNavigateBack = {
-                    activeEnrichIdState.value = null
+                    viewModel.setActiveEnrichId(null)
                 }
             )
         } else {
@@ -238,11 +280,11 @@ class MainActivity : ComponentActivity() {
                                 categories = categories,
                                 selectedFilter = selectedFilter,
                                 onFilterSelected = { filter -> viewModel.setTimeboxFilter(filter) },
-                                onEnrichTransaction = { id -> activeEnrichIdState.value = id },
+                                onEnrichTransaction = { id -> viewModel.setActiveEnrichId(id) },
                                 onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
                                 onNavigateToCategories = { currentTab = AppTab.CATEGORIES },
-                                onExportCsv = { handleExportCsv(allTransactions) },
-                                onExportPdf = { handleExportPdf(allTransactions) },
+                                onExportCsv = { onExportCsvClick(allTransactions) },
+                                onExportPdf = { onExportPdfClick(allTransactions) },
                                 monthlyIncome = monthlyIncome,
                                 savingsTargetPct = savingsTargetPct,
                                 spendingTargetPct = spendingTargetPct,
@@ -255,7 +297,9 @@ class MainActivity : ComponentActivity() {
                             CalendarScreen(
                                 allTransactions = allTransactions,
                                 onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
-                                onEditTransaction = { id -> activeEnrichIdState.value = id }
+                                onEditTransaction = { id -> viewModel.setActiveEnrichId(id) },
+                                onExportCsv = { txns -> onExportCsvClick(txns) },
+                                onExportPdf = { txns -> onExportPdfClick(txns) }
                             )
                         }
                         AppTab.ADD_MANUAL -> {
@@ -286,7 +330,7 @@ class MainActivity : ComponentActivity() {
                                 onResetOnboarding = { viewModel.resetOnboarding() },
                                 onSimulateSms = { body -> viewModel.simulateSmsTransaction(body) },
                                 onBackupDatabase = { createDocLauncher.launch("kharchadekh_backup.zip") },
-                                onRestoreDatabase = { openDocLauncher.launch(arrayOf("application/zip", "application/octet-stream", "*/*")) },
+                                onRestoreDatabase = { openDocLauncher.launch(arrayOf("application/octet-stream", "*/*")) },
                                 recurringSchedules = recurringSchedules,
                                 categories = categories,
                                 onToggleSchedule = { s -> viewModel.toggleRecurringSchedule(s) },
@@ -305,6 +349,185 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+
+        // Export Range Selection Dialog Overlay
+        if (displayExportDialog) {
+            ExportFilterDialog(
+                onDismiss = { displayExportDialog = false },
+                onOptionSelected = { scope ->
+                    displayExportDialog = false
+                    val now = System.currentTimeMillis()
+                    when (scope) {
+                        ExportScope.THIS_WEEK -> {
+                            val startLimit = now - 7L * 24 * 60 * 60 * 1000
+                            val filtered = transactionsForExport.filter {
+                                it.transaction.timestamp in startLimit..now
+                            }
+                            if (exportFormatType == "CSV") performExportCsv(filtered) else performExportPdf(filtered)
+                        }
+                        ExportScope.THIS_MONTH -> {
+                            val startOfCycle = viewModel.getStartOfBillingCycleTimestamp(billingCycleStartDay, now)
+                            val endOfCycle = viewModel.getStartOfNextBillingCycleTimestamp(billingCycleStartDay, now)
+                            val filtered = transactionsForExport.filter {
+                                it.transaction.timestamp in startOfCycle until endOfCycle
+                            }
+                            if (exportFormatType == "CSV") performExportCsv(filtered) else performExportPdf(filtered)
+                        }
+                        ExportScope.THIS_YEAR -> {
+                            val cal = Calendar.getInstance()
+                            cal.timeInMillis = now
+                            cal.set(Calendar.MONTH, Calendar.JANUARY)
+                            cal.set(Calendar.DAY_OF_MONTH, 1)
+                            cal.set(Calendar.HOUR_OF_DAY, 0)
+                            cal.set(Calendar.MINUTE, 0)
+                            cal.set(Calendar.SECOND, 0)
+                            cal.set(Calendar.MILLISECOND, 0)
+                            val startLimit = cal.timeInMillis
+                            val filtered = transactionsForExport.filter {
+                                it.transaction.timestamp in startLimit..now
+                            }
+                            if (exportFormatType == "CSV") performExportCsv(filtered) else performExportPdf(filtered)
+                        }
+                        ExportScope.CUSTOM -> {
+                            displayCustomDatePicker = true
+                        }
+                    }
+                }
+            )
+        }
+
+        // Material 3 Custom DateRangePicker Dialog
+        if (displayCustomDatePicker) {
+            DateRangePickerDialog(
+                onDismissRequest = { displayCustomDatePicker = false },
+                onConfirm = { startDate, endDate ->
+                    displayCustomDatePicker = false
+                    if (startDate != null && endDate != null) {
+                        val endOfDayCal = Calendar.getInstance()
+                        endOfDayCal.timeInMillis = endDate
+                        endOfDayCal.set(Calendar.HOUR_OF_DAY, 23)
+                        endOfDayCal.set(Calendar.MINUTE, 59)
+                        endOfDayCal.set(Calendar.SECOND, 59)
+                        endOfDayCal.set(Calendar.MILLISECOND, 999)
+                        val endLimit = endOfDayCal.timeInMillis
+                        
+                        val filtered = transactionsForExport.filter {
+                            it.transaction.timestamp in startDate..endLimit
+                        }
+                        if (exportFormatType == "CSV") performExportCsv(filtered) else performExportPdf(filtered)
+                    }
+                }
+            )
+        }
+    }
+
+    @Composable
+    fun ExportFilterDialog(
+        onDismiss: () -> Unit,
+        onOptionSelected: (ExportScope) -> Unit
+    ) {
+        AlertDialog(
+            onDismissRequest = onDismiss,
+            title = {
+                Text("Select Export Range", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+            },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Button(
+                        onClick = { onOptionSelected(ExportScope.THIS_WEEK) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                    ) {
+                        Text("This Week (Preceding 7 days)")
+                    }
+                    Button(
+                        onClick = { onOptionSelected(ExportScope.THIS_MONTH) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                    ) {
+                        Text("This Month (Billing Cycle)")
+                    }
+                    Button(
+                        onClick = { onOptionSelected(ExportScope.THIS_YEAR) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                    ) {
+                        Text("This Year (Calendar Year)")
+                    }
+                    Button(
+                        onClick = { onOptionSelected(ExportScope.CUSTOM) },
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primaryContainer, contentColor = MaterialTheme.colorScheme.onPrimaryContainer)
+                    ) {
+                        Text("Custom Date Range...")
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = onDismiss) {
+                    Text("Dismiss")
+                }
+            }
+        )
+    }
+
+    @OptIn(ExperimentalMaterial3Api::class)
+    @Composable
+    fun DateRangePickerDialog(
+        onDismissRequest: () -> Unit,
+        onConfirm: (Long?, Long?) -> Unit
+    ) {
+        val state = rememberDateRangePickerState()
+        Dialog(
+            onDismissRequest = onDismissRequest,
+            properties = DialogProperties(usePlatformDefaultWidth = false)
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .fillMaxHeight(0.9f)
+                    .padding(16.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.background
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TextButton(onClick = onDismissRequest) {
+                            Text("Cancel")
+                        }
+                        Text(
+                            text = "Select Date Range",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        TextButton(
+                            onClick = {
+                                onConfirm(state.selectedStartDateMillis, state.selectedEndDateMillis)
+                            },
+                            enabled = state.selectedStartDateMillis != null && state.selectedEndDateMillis != null
+                        ) {
+                            Text("Confirm")
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(8.dp))
+                    DateRangePicker(
+                        state = state,
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
     }
 
     private fun shareFile(uri: Uri, mimeType: String, title: String) {
@@ -316,7 +539,7 @@ class MainActivity : ComponentActivity() {
         startActivity(android.content.Intent.createChooser(intent, title))
     }
 
-    private fun handleExportCsv(transactions: List<TransactionWithCategory>) {
+    private fun performExportCsv(transactions: List<TransactionWithCategory>) {
         val uri = com.ankitsudegora.util.Exporter.exportToCsv(this, transactions)
         if (uri != null) {
             shareFile(uri, "text/csv", "Share CSV Expense Report")
@@ -325,7 +548,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun handleExportPdf(transactions: List<TransactionWithCategory>) {
+    private fun performExportPdf(transactions: List<TransactionWithCategory>) {
         val uri = com.ankitsudegora.util.Exporter.exportToPdf(this, transactions)
         if (uri != null) {
             shareFile(uri, "application/pdf", "Share PDF Expense Report")

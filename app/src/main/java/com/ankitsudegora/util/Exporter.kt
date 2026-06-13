@@ -6,6 +6,9 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.pdf.PdfDocument
 import android.net.Uri
+import android.text.TextPaint
+import android.text.TextUtils
+import android.text.TextUtils.TruncateAt
 import androidx.core.content.FileProvider
 import com.ankitsudegora.data.TransactionWithCategory
 import java.io.File
@@ -54,7 +57,7 @@ object Exporter {
     fun exportToPdf(context: Context, transactions: List<TransactionWithCategory>): Uri? {
         val pdfDocument = PdfDocument()
         val paint = Paint()
-        val textPaint = Paint().apply {
+        val textPaint = TextPaint().apply {
             color = Color.BLACK
             textSize = 12f
             isAntiAlias = true
@@ -76,97 +79,121 @@ object Exporter {
             isAntiAlias = true
             textAlign = Paint.Align.CENTER
         }
+        val pageNumPaint = Paint().apply {
+            color = Color.GRAY
+            textSize = 9f
+            isAntiAlias = true
+            textAlign = Paint.Align.RIGHT
+        }
 
-        // Draw page 1
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, 1).create() // A4 Size: 595 x 842 pt
+        var pageNumber = 1
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageNumber).create() // A4 Size: 595 x 842 pt
         var page = pdfDocument.startPage(pageInfo)
         var canvas = page.canvas
+        var currentY = 50f
+        var isPageFinished = false
 
-        var yPosition = 50f
-        
-        // Draw Header
-        canvas.drawText("KharchaDekh Expense Report", 50f, yPosition, headerPaint)
-        yPosition += 20f
-        
-        val dateStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date())
-        canvas.drawText("Generated on: $dateStr", 50f, yPosition, subHeaderPaint)
-        yPosition += 30f
+        // Helper to draw the header for a given page
+        fun drawPageHeader(canvas: Canvas, pageNum: Int) {
+            var y = 50f
+            if (pageNum == 1) {
+                canvas.drawText("KharchaDekh Expense Report", 50f, y, headerPaint)
+                y += 20f
+                val dateStr = SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date())
+                canvas.drawText("Generated on: $dateStr", 50f, y, subHeaderPaint)
+                y += 30f
 
-        // Draw summary metrics
-        val totalDebit = transactions.filter { it.transaction.type == "DEBIT" }.sumOf { it.transaction.amount }
-        val totalCredit = transactions.filter { it.transaction.type == "CREDIT" }.sumOf { it.transaction.amount }
-        
-        paint.color = Color.LTGRAY
-        canvas.drawRect(50f, yPosition, 545f, yPosition + 40f, paint)
-        
-        textPaint.isFakeBoldText = true
-        canvas.drawText("Total Outflow: ₹%,.2f".format(totalDebit), 60f, yPosition + 25f, textPaint)
-        canvas.drawText("Total Inflow: ₹%,.2f".format(totalCredit), 300f, yPosition + 25f, textPaint)
-        yPosition += 60f
+                // Draw summary metrics on page 1
+                val totalDebit = transactions.filter { it.transaction.type == "DEBIT" }.sumOf { it.transaction.amount }
+                val totalCredit = transactions.filter { it.transaction.type == "CREDIT" }.sumOf { it.transaction.amount }
+                
+                paint.color = Color.LTGRAY
+                canvas.drawRect(50f, y, 545f, y + 40f, paint)
+                
+                textPaint.isFakeBoldText = true
+                canvas.drawText("Total Outflow: ₹%,.2f".format(totalDebit), 60f, y + 25f, textPaint)
+                canvas.drawText("Total Inflow: ₹%,.2f".format(totalCredit), 300f, y + 25f, textPaint)
+                y += 60f
+            } else {
+                canvas.drawText("KharchaDekh Expense Report (Continued)", 50f, y, headerPaint)
+                y += 30f
+            }
 
-        // Draw Table Header
-        paint.color = Color.BLACK
-        paint.strokeWidth = 1f
-        canvas.drawLine(50f, yPosition, 545f, yPosition, paint)
-        yPosition += 15f
-        
-        textPaint.isFakeBoldText = true
-        canvas.drawText("Date", 50f, yPosition, textPaint)
-        canvas.drawText("Merchant / Source", 150f, yPosition, textPaint)
-        canvas.drawText("Category", 320f, yPosition, textPaint)
-        canvas.drawText("Type", 420f, yPosition, textPaint)
-        canvas.drawText("Amount", 480f, yPosition, textPaint)
-        yPosition += 10f
-        canvas.drawLine(50f, yPosition, 545f, yPosition, paint)
-        yPosition += 20f
+            // Draw Table Header
+            paint.color = Color.BLACK
+            paint.strokeWidth = 1f
+            canvas.drawLine(50f, y, 545f, y, paint)
+            y += 15f
+            
+            textPaint.isFakeBoldText = true
+            canvas.drawText("Date", 50f, y, textPaint)
+            canvas.drawText("Merchant / Source", 150f, y, textPaint)
+            canvas.drawText("Category", 320f, y, textPaint)
+            canvas.drawText("Type", 420f, y, textPaint)
+            canvas.drawText("Amount", 480f, y, textPaint)
+            y += 10f
+            canvas.drawLine(50f, y, 545f, y, paint)
+            y += 20f
+            textPaint.isFakeBoldText = false
+            
+            currentY = y
+        }
 
-        textPaint.isFakeBoldText = false
+        // Helper to draw the footer for a given page
+        fun drawPageFooter(canvas: Canvas, pageNum: Int) {
+            canvas.drawText("Made with 💝 by Ankit Sudegora • 100% Offline & Private", 595f / 2f, 815f, footerPaint)
+            canvas.drawText("Page $pageNum", 545f, 815f, pageNumPaint)
+        }
+
+        // Initialize the first page header
+        drawPageHeader(canvas, pageNumber)
+
         val dateFormat = SimpleDateFormat("dd MMM yy", Locale.getDefault())
 
         for (item in transactions) {
-            // Check if page height exceeded
-            if (yPosition > 780f) {
-                canvas.drawText("Made with 💝 by Ankit Sudegora • 100% Offline & Private", 595f / 2f, 815f, footerPaint)
+            val rowHeight = 22f
+            // If drawing this row would exceed the bottom margin threshold (50 points from bottom edge: 842 - 50 = 792)
+            if (currentY + rowHeight > 842f - 50f) {
+                drawPageFooter(canvas, pageNumber)
                 pdfDocument.finishPage(page)
-                val newPageInfo = PdfDocument.PageInfo.Builder(595, 842, pdfDocument.pages.size + 1).create()
+                isPageFinished = true
+
+                pageNumber++
+                val newPageInfo = PdfDocument.PageInfo.Builder(595, 842, pageNumber).create()
                 page = pdfDocument.startPage(newPageInfo)
                 canvas = page.canvas
-                yPosition = 50f
-                
-                // Draw continuation table header
-                canvas.drawLine(50f, yPosition, 545f, yPosition, paint)
-                yPosition += 15f
-                textPaint.isFakeBoldText = true
-                canvas.drawText("Date", 50f, yPosition, textPaint)
-                canvas.drawText("Merchant / Source", 150f, yPosition, textPaint)
-                canvas.drawText("Category", 320f, yPosition, textPaint)
-                canvas.drawText("Type", 420f, yPosition, textPaint)
-                canvas.drawText("Amount", 480f, yPosition, textPaint)
-                yPosition += 10f
-                canvas.drawLine(50f, yPosition, 545f, yPosition, paint)
-                yPosition += 20f
-                textPaint.isFakeBoldText = false
+                isPageFinished = false
+
+                drawPageHeader(canvas, pageNumber)
             }
 
             val t = item.transaction
             val dateFormatted = dateFormat.format(Date(t.timestamp))
-            val merchantName = if (t.merchant.length > 20) t.merchant.substring(0, 18) + ".." else t.merchant
-            val catName = item.category?.name ?: "Uncategorized"
-            val categoryName = if (catName.length > 12) catName.substring(0, 10) + ".." else catName
             
-            canvas.drawText(dateFormatted, 50f, yPosition, textPaint)
-            canvas.drawText(merchantName, 150f, yPosition, textPaint)
-            canvas.drawText(categoryName, 320f, yPosition, textPaint)
-            canvas.drawText(t.type, 420f, yPosition, textPaint)
+            // Use TextUtils.ellipsize for merchant column (width available from 150f to 320f is 170f, using 155f defensively)
+            val merchantName = TextUtils.ellipsize(t.merchant, textPaint, 155f, TruncateAt.END).toString()
+            
+            val catName = item.category?.name ?: "Uncategorized"
+            // Use TextUtils.ellipsize for category column (width available from 320f to 420f is 100f, using 90f defensively)
+            val categoryName = TextUtils.ellipsize(catName, textPaint, 90f, TruncateAt.END).toString()
+            
+            canvas.drawText(dateFormatted, 50f, currentY, textPaint)
+            canvas.drawText(merchantName, 150f, currentY, textPaint)
+            canvas.drawText(categoryName, 320f, currentY, textPaint)
+            canvas.drawText(t.type, 420f, currentY, textPaint)
             
             val amtStr = "₹%,.0f".format(t.amount)
-            canvas.drawText(amtStr, 480f, yPosition, textPaint)
+            canvas.drawText(amtStr, 480f, currentY, textPaint)
 
-            yPosition += 22f
+            currentY += rowHeight
         }
 
-        canvas.drawText("Made with 💝 by Ankit Sudegora • 100% Offline & Private", 595f / 2f, 815f, footerPaint)
-        pdfDocument.finishPage(page)
+        // Finalize last page defensively
+        if (!isPageFinished) {
+            drawPageFooter(canvas, pageNumber)
+            pdfDocument.finishPage(page)
+            isPageFinished = true
+        }
 
         return try {
             val cacheDir = File(context.cacheDir, "exports")

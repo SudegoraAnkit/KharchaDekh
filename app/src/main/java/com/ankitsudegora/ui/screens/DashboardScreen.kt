@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -219,7 +220,8 @@ fun DashboardScreen(
                 savingsTargetPct = savingsTargetPct,
                 spendingTargetPct = spendingTargetPct,
                 selectedFilter = selectedFilter,
-                monthlyCategorySpends = monthlyCategorySpends
+                monthlyCategorySpends = monthlyCategorySpends,
+                forecastAllowance = forecastAllowance
             )
         }
 
@@ -421,7 +423,7 @@ fun BudgetTrackingSection(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.TrendingUp,
+                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f),
                             modifier = Modifier.size(36.dp)
@@ -508,7 +510,7 @@ fun BudgetTrackingSection(
                         }
                         
                         LinearProgressIndicator(
-                            progress = ratio,
+                            progress = { ratio },
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .height(8.dp)
@@ -579,10 +581,12 @@ fun MetricsSummarySection(
     savingsTargetPct: Int,
     spendingTargetPct: Int,
     selectedFilter: TimeboxFilter,
-    monthlyCategorySpends: Map<Long, Double>
+    monthlyCategorySpends: Map<Long, Double>,
+    forecastAllowance: com.ankitsudegora.viewmodel.ForecastAllowance
 ) {
     val totalExpense = analytics.totalExpense
-    val monthlySpent = monthlyCategorySpends.values.sum()
+    val totalActualSpent = monthlyCategorySpends.values.sum()
+    val monthlySpent = if (monthlyIncome > 0.0) forecastAllowance.discretionarySpent else totalActualSpent
 
     Card(
         shape = RoundedCornerShape(32.dp),
@@ -642,8 +646,8 @@ fun MetricsSummarySection(
 
                 if (monthlyIncome > 0.0) {
                     val targetSavings = monthlyIncome * (savingsTargetPct / 100.0)
-                    val spendingCap = monthlyIncome * (spendingTargetPct / 100.0)
-                    val currentSaved = monthlyIncome - monthlySpent
+                    val spendingCap = forecastAllowance.discretionarySpendingCap
+                    val currentSaved = monthlyIncome - totalActualSpent
                     val isSavingsMet = currentSaved >= targetSavings
                     
                     val savingsColor = if (isSavingsMet) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.error
@@ -684,11 +688,11 @@ fun MetricsSummarySection(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 LinearProgressIndicator(
-                                    progress = (currentSaved / targetSavings).coerceIn(0.0, 1.0).toFloat(),
-                                    color = savingsColor,
-                                    trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
-                                )
+                                     progress = { (currentSaved / targetSavings).coerceIn(0.0, 1.0).toFloat() },
+                                     color = savingsColor,
+                                     trackColor = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.15f),
+                                     modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                                 )
                             }
                         }
 
@@ -728,11 +732,11 @@ fun MetricsSummarySection(
                                 )
                                 Spacer(modifier = Modifier.height(6.dp))
                                 LinearProgressIndicator(
-                                    progress = (monthlySpent / spendingCap).coerceIn(0.0, 1.0).toFloat(),
-                                    color = capColor,
-                                    trackColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.15f),
-                                    modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
-                                )
+                                     progress = { (monthlySpent / spendingCap).coerceIn(0.0, 1.0).toFloat() },
+                                     color = capColor,
+                                     trackColor = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.15f),
+                                     modifier = Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp))
+                                 )
                             }
                         }
                     }
@@ -938,8 +942,8 @@ fun PendingReviewCard(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Sms,
-                        contentDescription = "SMS Alert",
+                        imageVector = if (item.transaction.source == "RECURRING") Icons.Default.Autorenew else Icons.Default.Sms,
+                        contentDescription = if (item.transaction.source == "RECURRING") "Recurring Trigger" else "SMS Alert",
                         tint = MaterialTheme.colorScheme.error,
                         modifier = Modifier.size(20.dp)
                     )
@@ -965,7 +969,11 @@ fun PendingReviewCard(
                     val timeFormat = java.text.SimpleDateFormat("hh:mm a", java.util.Locale.getDefault())
                     val timeStr = timeFormat.format(java.util.Date(item.transaction.timestamp))
                     Text(
-                        text = "SMS: ${item.transaction.smsSenderId ?: "Alert"} • $timeStr",
+                        text = if (item.transaction.source == "RECURRING") {
+                            "Recurring Trigger • $timeStr"
+                        } else {
+                            "SMS: ${item.transaction.smsSenderId ?: "Alert"} • $timeStr"
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
                     )
@@ -1166,7 +1174,7 @@ fun SafeToSpendCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = if (allowance.isOverspent) Icons.Default.Warning else Icons.Default.TrendingUp,
+                            imageVector = if (allowance.isOverspent) Icons.Default.Warning else Icons.AutoMirrored.Filled.TrendingUp,
                             contentDescription = null,
                             tint = if (allowance.isOverspent) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(20.dp)

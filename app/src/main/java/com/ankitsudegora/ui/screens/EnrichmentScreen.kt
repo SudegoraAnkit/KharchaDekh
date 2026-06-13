@@ -1,5 +1,6 @@
 package com.ankitsudegora.ui.screens
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -10,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -34,6 +36,10 @@ fun EnrichmentScreen(
     onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?) -> Unit,
     onNavigateBack: () -> Unit
 ) {
+    BackHandler {
+        onNavigateBack()
+    }
+
     val scrollState = rememberScrollState()
     
     var existingTransaction by remember { mutableStateOf<Transaction?>(null) }
@@ -42,6 +48,21 @@ fun EnrichmentScreen(
     var notes by remember { mutableStateOf("") }
     var transactionType by remember { mutableStateOf("DEBIT") } // DEBIT / CREDIT
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
+
+    val filteredCategories = remember(categories, transactionType) {
+        val inflowNames = setOf("salary", "refund", "interest", "other inflow")
+        if (transactionType == "CREDIT") {
+            categories.filter { it.name.lowercase() in inflowNames }
+        } else {
+            categories.filter { it.name.lowercase() !in inflowNames }
+        }
+    }
+
+    LaunchedEffect(filteredCategories) {
+        if (selectedCategoryId == null || filteredCategories.none { it.id == selectedCategoryId }) {
+            selectedCategoryId = filteredCategories.firstOrNull { it.name.lowercase() != "others" }?.id ?: filteredCategories.firstOrNull()?.id
+        }
+    }
 
     var isRecurringChecked by remember { mutableStateOf(false) }
     var selectedFrequency by remember { mutableStateOf("MONTHLY") }
@@ -56,6 +77,7 @@ fun EnrichmentScreen(
             notes = txn.notes ?: ""
             transactionType = txn.type
             selectedCategoryId = txn.categoryId ?: categories.firstOrNull { it.name.lowercase() != "others" }?.id ?: categories.firstOrNull()?.id
+            isRecurringChecked = txn.source == "RECURRING"
         }
     }
 
@@ -75,13 +97,17 @@ fun EnrichmentScreen(
     }
     val buttonLabel = if (isPending) "Verify & Reconcile Spends" else "Save Ledger Changes"
 
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .verticalScroll(scrollState)
-            .padding(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = MaterialTheme.colorScheme.background
     ) {
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(scrollState)
+                .padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
         // Back toolbar navigation header
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -91,7 +117,7 @@ fun EnrichmentScreen(
                 onClick = onNavigateBack,
                 modifier = Modifier.testTag("enrich_back_btn")
             ) {
-                Icon(Icons.Default.ArrowBack, "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
             }
             Text(
                 text = titleText,
@@ -231,7 +257,7 @@ fun EnrichmentScreen(
             val w = (maxWidth - (spacing * (columns - 1))) / columns
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                categories.chunked(columns).forEach { row ->
+                filteredCategories.chunked(columns).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -292,7 +318,7 @@ fun EnrichmentScreen(
             value = notes,
             onValueChange = { notes = it },
             label = { Text("Reconciled Transaction Notes (Optional)") },
-            leadingIcon = { Icon(Icons.Default.Notes, null) },
+            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Notes, null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             shape = RoundedCornerShape(12.dp)
@@ -382,7 +408,7 @@ fun EnrichmentScreen(
         Button(
             onClick = {
                 val amt = amountStr.toDoubleOrNull() ?: existingTransaction!!.amount
-                val catId = selectedCategoryId ?: categories.firstOrNull()?.id ?: 0L
+                val catId = selectedCategoryId ?: filteredCategories.firstOrNull()?.id ?: 0L
                 val freq = if (isRecurringChecked) selectedFrequency else null
                 onFinalizeTransaction(
                     transactionId,
@@ -415,5 +441,6 @@ fun EnrichmentScreen(
         }
 
         Spacer(modifier = Modifier.height(24.dp))
+        }
     }
 }

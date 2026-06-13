@@ -38,14 +38,35 @@ data class Transaction(
     val merchant: String,
     val categoryId: Long? = null,
     val notes: String? = null,
-    val timestamp: Long = System.currentTimeMillis(),
-    val paymentMethod: String, // "UPI", "CASH", "CARD", "NETBANKING"
-    val isPending: Boolean,
-    val source: String, // "SMS" or "MANUAL"
-    val smsSenderId: String? = null
+    val timestamp: Long,
+    val paymentMethod: String, // "UPI", "CARD", "CASH", "NETBANKING"
+    val isPending: Boolean = false, // True for notifications requiring category/merchant verification
+    val source: String = "MANUAL", // "MANUAL", "SMS", "NOTIFICATION", "RECURRING"
+    val smsSenderId: String? = null // For trace tracking
 )
 
-// Data class to easily load Transaction alongside its Category
+@Entity(tableName = "recurring_schedules")
+data class RecurringSchedule(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val amount: Double,
+    val type: String, // "DEBIT" or "CREDIT"
+    val merchant: String,
+    val categoryId: Long?,
+    val notes: String?,
+    val paymentMethod: String,
+    val frequency: String, // "DAILY", "WEEKLY", "MONTHLY", "YEARLY"
+    val lastTriggered: Long,
+    val nextTriggerTime: Long,
+    val isActive: Boolean = true
+)
+
+@Entity(tableName = "app_settings")
+data class AppSetting(
+    @PrimaryKey val key: String,
+    val value: String,
+    val type: String // "STRING", "INT", "BOOLEAN", "FLOAT", "LONG"
+)
+
 data class TransactionWithCategory(
     @Embedded val transaction: Transaction,
     @Relation(
@@ -55,44 +76,18 @@ data class TransactionWithCategory(
     val category: Category?
 )
 
-@Entity(
-    tableName = "recurring_schedules",
-    foreignKeys = [
-        ForeignKey(
-            entity = Category::class,
-            parentColumns = ["id"],
-            childColumns = ["categoryId"],
-            onDelete = ForeignKey.SET_NULL
-        )
-    ],
-    indices = [Index(value = ["categoryId"])]
-)
-data class RecurringSchedule(
-    @PrimaryKey(autoGenerate = true) val id: Long = 0,
-    val amount: Double,
-    val type: String,
-    val merchant: String,
-    val categoryId: Long? = null,
-    val notes: String? = null,
-    val paymentMethod: String,
-    val frequency: String, // DAILY, WEEKLY, MONTHLY, YEARLY
-    val lastTriggered: Long,
-    val nextTriggerTime: Long,
-    val isActive: Boolean = true
-)
-
 @Dao
 interface CategoryDao {
-    @Query("SELECT * FROM categories ORDER BY isCustom ASC, id ASC")
+    @Query("SELECT * FROM categories ORDER BY name ASC")
     fun getAllCategoriesFlow(): Flow<List<Category>>
 
-    @Query("SELECT * FROM categories ORDER BY isCustom ASC, id ASC")
+    @Query("SELECT * FROM categories ORDER BY name ASC")
     suspend fun getAllCategories(): List<Category>
 
     @Query("SELECT * FROM categories WHERE id = :id")
     suspend fun getCategoryById(id: Long): Category?
 
-    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    @Insert(onConflict = OnConflictStrategy.IGNORE)
     suspend fun insertCategory(category: Category): Long
 
     @Update
@@ -103,7 +98,23 @@ interface CategoryDao {
 }
 
 @Dao
+interface AppSettingDao {
+    @Query("SELECT * FROM app_settings")
+    suspend fun getAllSettings(): List<AppSetting>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertSettings(settings: List<AppSetting>)
+
+    @Query("DELETE FROM app_settings")
+    suspend fun clearSettings()
+}
+
+@Dao
 interface TransactionDao {
+    @RoomTransactionAnnot
+    @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
+    fun getAllTransactionsFlow(): Flow<List<TransactionWithCategory>>
+
     @RoomTransactionAnnot
     @Query("SELECT * FROM transactions ORDER BY timestamp DESC")
     fun getAllTransactionsWithCategoryFlow(): Flow<List<TransactionWithCategory>>
@@ -123,6 +134,9 @@ interface TransactionDao {
 
     @Query("SELECT SUM(amount) FROM transactions WHERE categoryId = :categoryId AND type = 'DEBIT' AND isPending = 0 AND timestamp >= :since")
     suspend fun getCategorySpentSince(categoryId: Long, since: Long): Double?
+
+    @Query("SELECT COUNT(*) FROM transactions WHERE amount = :amount AND type = :type AND LOWER(merchant) = LOWER(:merchant) AND timestamp >= :minTimestamp")
+    suspend fun getMatchingTransactionCount(amount: Double, type: String, merchant: String, minTimestamp: Long): Int
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: Transaction): Long
@@ -152,11 +166,12 @@ interface RecurringScheduleDao {
     suspend fun deleteSchedule(schedule: RecurringSchedule)
 }
 
-@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class], version = 3, exportSchema = false)
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class], version = 4, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
     abstract fun recurringScheduleDao(): RecurringScheduleDao
+    abstract fun appSettingDao(): AppSettingDao
 
     companion object {
         @Volatile
@@ -171,6 +186,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_3_4 = object : Migration(3, 4) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `app_settings` (`key` TEXT NOT NULL, `value` TEXT NOT NULL, `type` TEXT NOT NULL, PRIMARY KEY(`key`))")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -178,8 +199,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
-                .addMigrations(MIGRATION_2_3)
-                .fallbackToDestructiveMigration()
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .fallbackToDestructiveMigration(true)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
@@ -208,6 +229,13 @@ abstract class AppDatabase : RoomDatabase() {
                 .build()
                 INSTANCE = instance
                 instance
+            }
+        }
+
+        fun closeAndResetInstance() {
+            synchronized(this) {
+                INSTANCE?.close()
+                INSTANCE = null
             }
         }
     }

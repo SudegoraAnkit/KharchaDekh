@@ -2,6 +2,7 @@ package com.ankitsudegora.ui.components
 
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 fun getIconVector(name: String): ImageVector {
@@ -11,7 +12,7 @@ fun getIconVector(name: String): ImageVector {
         "home" -> Icons.Default.Home
         "directions_car" -> Icons.Default.DirectionsCar
         "shopping_bag" -> Icons.Default.ShoppingBag
-        "receipt_long" -> Icons.Default.ReceiptLong
+        "receipt_long" -> Icons.AutoMirrored.Filled.ReceiptLong
         "movie" -> Icons.Default.Movie
         "medical_services" -> Icons.Default.MedicalServices
         "account_balance" -> Icons.Default.AccountBalance
@@ -23,13 +24,13 @@ fun getIconVector(name: String): ImageVector {
         "notifications" -> Icons.Default.Notifications
         "warning" -> Icons.Default.Warning
         "check" -> Icons.Default.Check
-        "arrow_back" -> Icons.Default.ArrowBack
+        "arrow_back" -> Icons.AutoMirrored.Filled.ArrowBack
         "star" -> Icons.Default.Star
         "card_membership" -> Icons.Default.CardMembership
         "local_taxi" -> Icons.Default.LocalTaxi
         "celebration" -> Icons.Default.Celebration
         "savings" -> Icons.Default.Savings
-        "trending_up" -> Icons.Default.TrendingUp
+        "trending_up" -> Icons.AutoMirrored.Filled.TrendingUp
         "redeem" -> Icons.Default.Redeem
         "payments" -> Icons.Default.Payments
         "restore" -> Icons.Default.Restore

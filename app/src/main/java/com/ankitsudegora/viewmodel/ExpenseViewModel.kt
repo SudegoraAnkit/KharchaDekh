@@ -40,7 +40,9 @@ data class ForecastAllowance(
     val weeklyAllowance: Double = 0.0,
     val isOverspent: Boolean = false,
     val remainingDays: Int = 1,
-    val fixedCommitments: Double = 0.0
+    val fixedCommitments: Double = 0.0,
+    val discretionarySpent: Double = 0.0,
+    val discretionarySpendingCap: Double = 0.0
 )
 
 class ExpenseViewModel(application: Application) : AndroidViewModel(application) {
@@ -74,6 +76,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val _autoBackupNight = MutableStateFlow(prefs.getBoolean("auto_backup_night", false))
     val autoBackupNight: StateFlow<Boolean> = _autoBackupNight.asStateFlow()
 
+    // Active timestamp StateFlow updating periodically to fix the Frozen Time bug
+    private val _currentTimeMillis = MutableStateFlow(System.currentTimeMillis())
+    val currentTimeMillis: StateFlow<Long> = _currentTimeMillis.asStateFlow()
+
+    private val _activeEnrichId = MutableStateFlow<Long?>(null)
+    val activeEnrichId: StateFlow<Long?> = _activeEnrichId.asStateFlow()
+
+    fun setActiveEnrichId(id: Long?) {
+        _activeEnrichId.value = id
+    }
+
     // Onboarding DPDP consent state
     private val _onboardingState = MutableStateFlow<OnboardingState>(
         if (prefs.getBoolean("dpdp_consent_granted", false)) OnboardingState.Completed else OnboardingState.Required
@@ -97,28 +110,30 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val _timeboxFilter = MutableStateFlow(TimeboxFilter.MONTHLY)
     val timeboxFilter: StateFlow<TimeboxFilter> = _timeboxFilter.asStateFlow()
 
-    // Analytics state calculated reactively based on transactions and selected filter
+    // Analytics state calculated reactively based on transactions, selected filter, time tracking, and custom cycle
     val analyticsState: StateFlow<AnalyticsState> = combine(
         allTransactions,
-        _timeboxFilter
-    ) { txns, filter ->
-        calculateAnalytics(txns, filter)
+        _timeboxFilter,
+        _currentTimeMillis,
+        _billingCycleStartDay
+    ) { txns, filter, now, startDay ->
+        calculateAnalytics(txns, filter, now, startDay)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AnalyticsState())
 
     // Billing Cycle Start Day update
-
     fun updateBillingCycleStartDay(day: Int) {
-        val validDay = day.coerceIn(1, 28)
+        val validDay = day.coerceIn(1, 30)
         _billingCycleStartDay.value = validDay
         prefs.edit().putInt("billing_cycle_start_day", validDay).apply()
     }
 
-    // Billing-cycle specific spends for budgets (always reflects current billing cycle)
+    // Billing-cycle specific spends for budgets (always reflects current billing cycle and uses active time)
     val monthlyCategorySpends: StateFlow<Map<Long, Double>> = combine(
         allTransactions,
-        _billingCycleStartDay
-    ) { txns, startDay ->
-        val startOfCycle = getStartOfBillingCycleTimestamp(startDay)
+        _billingCycleStartDay,
+        _currentTimeMillis
+    ) { txns, startDay, now ->
+        val startOfCycle = getStartOfBillingCycleTimestamp(startDay, now)
         txns.filter {
             !it.transaction.isPending &&
             it.transaction.type == "DEBIT" &&
@@ -127,31 +142,44 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
          .mapValues { entry -> entry.value.sumOf { it.transaction.amount } }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
-    // Safe to Spend allowance forecasting
     val forecastAllowance: StateFlow<ForecastAllowance> = combine(
         allTransactions,
         allSchedules,
         _monthlyIncome,
         _savingsTargetPct,
-        _billingCycleStartDay
-    ) { txns, schedules, income, savingsPct, startDay ->
+        _spendingTargetPct,
+        _billingCycleStartDay,
+        _currentTimeMillis
+    ) { array ->
+        @Suppress("UNCHECKED_CAST")
+        val txns = array[0] as List<TransactionWithCategory>
+        @Suppress("UNCHECKED_CAST")
+        val schedules = array[1] as List<RecurringSchedule>
+        val income = array[2] as Double
+        val savingsPct = array[3] as Int
+        val spendingPct = array[4] as Int
+        val startDay = array[5] as Int
+        val now = array[6] as Long
+
         if (income <= 0.0) {
             return@combine ForecastAllowance()
         }
-        val startOfCycle = getStartOfBillingCycleTimestamp(startDay)
-        val remainingDays = getRemainingDaysInBillingCycle(startDay)
+        val startOfCycle = getStartOfBillingCycleTimestamp(startDay, now)
+        val remainingDays = getRemainingDaysInBillingCycle(startDay, now)
         
-        // Sum total spent in current cycle
-        val totalSpent = txns.filter {
+        // Sum total non-recurring spent in current cycle (Discretionary)
+        val discretionarySpent = txns.filter {
             !it.transaction.isPending &&
             it.transaction.type == "DEBIT" &&
+            it.transaction.source != "RECURRING" &&
             it.transaction.timestamp >= startOfCycle
         }.sumOf { it.transaction.amount }
         
         val targetSavings = income * (savingsPct / 100.0)
+        val spendingCap = income * (spendingPct / 100.0)
         
         // Sum active fixed commitments (Rent, Utilities, EMI etc.)
-        val fixedCommitments = schedules.filter { it.isActive }.sumOf { s ->
+        val rawFixedCommitments = schedules.filter { it.isActive }.sumOf { s ->
             when (s.frequency.uppercase()) {
                 "DAILY" -> s.amount * 30.0
                 "WEEKLY" -> s.amount * 4.33
@@ -160,8 +188,20 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 else -> s.amount
             }
         }
+
+        // Sum approved transactions from recurring schedules in the current billing cycle to deduct from projection
+        val realizedRecurring = txns.filter {
+            !it.transaction.isPending &&
+            it.transaction.type == "DEBIT" &&
+            it.transaction.source == "RECURRING" &&
+            it.transaction.timestamp >= startOfCycle
+        }.sumOf { it.transaction.amount }
+
+        // Adjusted fixed commitments = remaining unspent fixed commitments projection
+        val fixedCommitments = (rawFixedCommitments - realizedRecurring).coerceAtLeast(0.0)
         
-        val discretionaryLeft = income - targetSavings - fixedCommitments - totalSpent
+        val discretionarySpendingCap = (spendingCap - rawFixedCommitments).coerceAtLeast(0.0)
+        val discretionaryLeft = spendingCap - rawFixedCommitments - discretionarySpent
         val daily = (discretionaryLeft / remainingDays).coerceAtLeast(0.0)
         val weekly = daily * 7.0
         
@@ -170,12 +210,13 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             weeklyAllowance = weekly,
             isOverspent = discretionaryLeft < 0.0,
             remainingDays = remainingDays,
-            fixedCommitments = fixedCommitments
+            fixedCommitments = fixedCommitments,
+            discretionarySpent = discretionarySpent,
+            discretionarySpendingCap = discretionarySpendingCap
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ForecastAllowance())
 
     // Reminder and Profile updates
-
     fun updateUserName(name: String) {
         val trimmed = name.trim()
         val finalName = if (trimmed.isBlank()) "User" else trimmed
@@ -183,9 +224,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putString("user_name", finalName).apply()
     }
 
-    // Budgeting targets
     // Budgeting goals updates
-
     fun updateBudgetGoals(income: Double, savingsPct: Int, spendingPct: Int) {
         _monthlyIncome.value = income
         _savingsTargetPct.value = savingsPct
@@ -198,7 +237,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     }
 
     // Auto-backup night update
-
     fun updateAutoBackupNight(enabled: Boolean) {
         _autoBackupNight.value = enabled
         prefs.edit().putBoolean("auto_backup_night", enabled).apply()
@@ -212,33 +250,47 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             processRecurringSchedules()
         }
+        // Ticker to refresh currentTimeMillis StateFlow and prevent stale layout state past midnight
+        viewModelScope.launch {
+            while (true) {
+                kotlinx.coroutines.delay(30000) // update every 30 seconds
+                _currentTimeMillis.value = System.currentTimeMillis()
+            }
+        }
     }
 
     private suspend fun processRecurringSchedules() {
         val schedules = repository.getActiveSchedules()
         val now = System.currentTimeMillis()
         schedules.forEach { s ->
-            var nextTime = s.nextTriggerTime
-            var updatedSchedule = s
-            while (now >= nextTime) {
+            if (s.nextTriggerTime <= 0) {
+                // Initialize next trigger time to the future to prevent any loop/crash
+                val nextTime = calculateNextTriggerTime(s.frequency, now)
+                val updatedSchedule = s.copy(lastTriggered = now, nextTriggerTime = nextTime)
+                repository.updateSchedule(updatedSchedule)
+            } else if (now >= s.nextTriggerTime) {
+                // Insert one pending transaction for the triggered schedule
                 val transaction = Transaction(
                     amount = s.amount,
                     type = s.type,
                     merchant = s.merchant,
                     categoryId = s.categoryId,
                     notes = s.notes ?: "Scheduled payment auto-trigger",
-                    timestamp = nextTime,
+                    timestamp = s.nextTriggerTime,
                     paymentMethod = s.paymentMethod,
                     isPending = true,  // Requires manual review
                     source = "RECURRING"
                 )
                 repository.insertTransaction(transaction)
 
-                val prevTime = nextTime
-                nextTime = calculateNextTriggerTime(s.frequency, prevTime)
-                updatedSchedule = updatedSchedule.copy(lastTriggered = prevTime, nextTriggerTime = nextTime)
-            }
-            if (updatedSchedule != s) {
+                // Advance nextTriggerTime until it is in the future (i.e. nextTriggerTime > now)
+                var nextTime = s.nextTriggerTime
+                var prevTime = s.lastTriggered
+                while (now >= nextTime) {
+                    prevTime = nextTime
+                    nextTime = calculateNextTriggerTime(s.frequency, prevTime)
+                }
+                val updatedSchedule = s.copy(lastTriggered = prevTime, nextTriggerTime = nextTime)
                 repository.updateSchedule(updatedSchedule)
             }
         }
@@ -266,9 +318,40 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     }
 
     fun resetOnboarding() {
-        prefs.edit().putBoolean("dpdp_consent_granted", false).apply()
+        prefs.edit().clear().apply()
+        _userName.value = "User"
+        _monthlyIncome.value = 0.0
+        _savingsTargetPct.value = 20
+        _spendingTargetPct.value = 50
+        _reminderHour.value = 20
+        _reminderMinute.value = 30
+        _autoBackupNight.value = false
+        _billingCycleStartDay.value = 1
         _onboardingState.value = OnboardingState.Required
         ReminderWorker.cancelAllReminders(getApplication())
+        
+        viewModelScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            db.clearAllTables()
+            val defaultCategories = listOf(
+                Category(name = "Food & Dining", iconResName = "restaurant"),
+                Category(name = "Groceries", iconResName = "shopping_cart"),
+                Category(name = "Rent & Maintenance", iconResName = "home"),
+                Category(name = "Fuel & Travel", iconResName = "directions_car"),
+                Category(name = "Shopping", iconResName = "shopping_bag"),
+                Category(name = "Bills & Utilities", iconResName = "receipt_long"),
+                Category(name = "Entertainment", iconResName = "movie"),
+                Category(name = "Health & Medical", iconResName = "medical_services"),
+                Category(name = "EMI & Loans", iconResName = "account_balance"),
+                Category(name = "Others", iconResName = "category"),
+                Category(name = "Salary", iconResName = "payments"),
+                Category(name = "Refund", iconResName = "restore"),
+                Category(name = "Interest", iconResName = "trending_up"),
+                Category(name = "Other Inflow", iconResName = "savings")
+            )
+            defaultCategories.forEach {
+                repository.insertCategory(it)
+            }
+        }
     }
 
     fun setTimeboxFilter(filter: TimeboxFilter) {
@@ -306,6 +389,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 isActive = true
             )
             repository.insertSchedule(schedule)
+            processRecurringSchedules()
         }
     }
 
@@ -318,6 +402,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     fun toggleRecurringSchedule(schedule: RecurringSchedule) {
         viewModelScope.launch {
             repository.updateSchedule(schedule.copy(isActive = !schedule.isActive))
+            processRecurringSchedules()
         }
     }
 
@@ -341,7 +426,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 timestamp = timestamp,
                 paymentMethod = paymentMethod,
                 isPending = false, // MANUAL log is never pending
-                source = "MANUAL"
+                source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else "MANUAL"
             )
             repository.insertTransaction(transaction)
 
@@ -390,7 +475,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     amount = amount,
                     merchant = merchant.ifBlank { existing.merchant },
                     type = type,
-                    isPending = false
+                    isPending = false,
+                    source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else if (existing.source == "RECURRING") "MANUAL" else existing.source
                 )
                 repository.updateTransaction(updated)
 
@@ -537,15 +623,13 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
     private fun calculateAnalytics(
         txns: List<TransactionWithCategory>,
-        filter: TimeboxFilter
+        filter: TimeboxFilter,
+        now: Long,
+        startDay: Int
     ): AnalyticsState {
         val calendar = Calendar.getInstance()
-        val now = System.currentTimeMillis()
 
         val filteredTxns = txns.filter { item ->
-            // Exclude pending transactions from solid stats if desired (or keep them). 
-            // In typical expense tracking, we exclude unresolved ones or include them. 
-            // Let's include everything that has been finalized, or calculate for all finalized transactions.
             if (item.transaction.isPending) return@filter false
 
             val itemTime = item.transaction.timestamp
@@ -568,7 +652,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     now - itemTime <= 7L * 24 * 60 * 60 * 1000
                 }
                 TimeboxFilter.MONTHLY -> {
-                    currentYear == itemYear && currentMonth == itemMonth
+                    val startOfCycle = getStartOfBillingCycleTimestamp(startDay, now)
+                    val endOfCycle = getStartOfNextBillingCycleTimestamp(startDay, now)
+                    itemTime in startOfCycle until endOfCycle
                 }
                 TimeboxFilter.YEARLY -> {
                     currentYear == itemYear
@@ -610,29 +696,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         )
     }
 
-    private fun getStartOfMonthTimestamp(): Long {
-        val calendar = Calendar.getInstance()
-        calendar.set(Calendar.DAY_OF_MONTH, 1)
-        calendar.set(Calendar.HOUR_OF_DAY, 0)
-        calendar.set(Calendar.MINUTE, 0)
-        calendar.set(Calendar.SECOND, 0)
-        calendar.set(Calendar.MILLISECOND, 0)
-        return calendar.timeInMillis
-    }
-
     private suspend fun checkBudgetThresholds(categoryId: Long) {
         val category = repository.getCategoryById(categoryId) ?: return
         val limit = category.budgetLimit ?: return
         if (limit <= 0) return
 
-        val since = getStartOfBillingCycleTimestamp(_billingCycleStartDay.value)
-        val spent = repository.getCategorySpentSince(categoryId, since)
+        val now = System.currentTimeMillis()
+        val since = getStartOfBillingCycleTimestamp(_billingCycleStartDay.value, now)
+        val spent = repository.getCategorySpentSince(categoryId, since) ?: 0.0
 
-        val calendar = Calendar.getInstance()
-        val currentMonthKey = "${calendar.get(Calendar.YEAR)}_${calendar.get(Calendar.MONTH)}"
-
-        val key80 = "budget_alert_80_${categoryId}_$currentMonthKey"
-        val key100 = "budget_alert_100_${categoryId}_$currentMonthKey"
+        val key80 = "budget_alert_80_${categoryId}_cycle_$since"
+        val key100 = "budget_alert_100_${categoryId}_cycle_$since"
 
         val alreadyNotified80 = prefs.getBoolean(key80, false)
         val alreadyNotified100 = prefs.getBoolean(key100, false)
@@ -656,8 +730,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun getStartOfBillingCycleTimestamp(startDay: Int): Long {
+    fun getStartOfBillingCycleTimestamp(startDay: Int, now: Long = System.currentTimeMillis()): Long {
         val calendar = Calendar.getInstance()
+        calendar.timeInMillis = now
         val currentDay = calendar.get(Calendar.DAY_OF_MONTH)
         
         calendar.set(Calendar.HOUR_OF_DAY, 0)
@@ -666,7 +741,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         calendar.set(Calendar.MILLISECOND, 0)
         
         if (currentDay >= startDay) {
-            calendar.set(Calendar.DAY_OF_MONTH, startDay)
+            val maxDays = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+            calendar.set(Calendar.DAY_OF_MONTH, startDay.coerceAtMost(maxDays))
         } else {
             calendar.add(Calendar.MONTH, -1)
             val maxDays = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
@@ -675,11 +751,19 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         return calendar.timeInMillis
     }
 
-    fun getRemainingDaysInBillingCycle(startDay: Int): Int {
+    fun getStartOfNextBillingCycleTimestamp(startDay: Int, now: Long = System.currentTimeMillis()): Long {
+        val startOfCurrent = getStartOfBillingCycleTimestamp(startDay, now)
         val calendar = Calendar.getInstance()
-        val now = calendar.timeInMillis
-        
+        calendar.timeInMillis = startOfCurrent
+        calendar.add(Calendar.MONTH, 1)
+        val maxDays = calendar.getActualMaximum(Calendar.DAY_OF_MONTH)
+        calendar.set(Calendar.DAY_OF_MONTH, startDay.coerceAtMost(maxDays))
+        return calendar.timeInMillis
+    }
+
+    fun getRemainingDaysInBillingCycle(startDay: Int, now: Long = System.currentTimeMillis()): Int {
         val nextCycle = Calendar.getInstance()
+        nextCycle.timeInMillis = now
         val currentDay = nextCycle.get(Calendar.DAY_OF_MONTH)
         if (currentDay >= startDay) {
             nextCycle.add(Calendar.MONTH, 1)
@@ -691,7 +775,14 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         nextCycle.set(Calendar.SECOND, 0)
         nextCycle.set(Calendar.MILLISECOND, 0)
         
-        val diffMs = nextCycle.timeInMillis - now
+        val todayStart = Calendar.getInstance()
+        todayStart.timeInMillis = now
+        todayStart.set(Calendar.HOUR_OF_DAY, 0)
+        todayStart.set(Calendar.MINUTE, 0)
+        todayStart.set(Calendar.SECOND, 0)
+        todayStart.set(Calendar.MILLISECOND, 0)
+        
+        val diffMs = nextCycle.timeInMillis - todayStart.timeInMillis
         val days = (diffMs / (24L * 60 * 60 * 1000)).toInt()
         return days.coerceAtLeast(1)
     }
