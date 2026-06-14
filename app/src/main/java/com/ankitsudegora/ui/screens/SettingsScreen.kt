@@ -14,6 +14,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -341,7 +342,7 @@ fun SettingsScreen(
                     horizontalArrangement = Arrangement.spacedBy(10.dp)
                 ) {
                     Icon(
-                        imageVector = Icons.Default.TrendingUp,
+                        imageVector = Icons.AutoMirrored.Filled.TrendingUp,
                         contentDescription = "Budget Planner",
                         tint = MaterialTheme.colorScheme.primary
                     )
@@ -479,14 +480,14 @@ fun SettingsScreen(
                     Slider(
                         value = billingCycleStartDay.toFloat(),
                         onValueChange = { onUpdateBillingCycleStartDay(it.toInt()) },
-                        valueRange = 1f..28f,
-                        steps = 27,
+                        valueRange = 1f..30f,
+                        steps = 29,
                         modifier = Modifier.weight(1f)
                     )
                 }
 
                 Text(
-                    text = "Current Cycle: Day $billingCycleStartDay of this month to Day ${if (billingCycleStartDay == 1) 28 else billingCycleStartDay - 1} of next month (approx).",
+                    text = "Current Cycle: Day $billingCycleStartDay of this month to Day ${if (billingCycleStartDay == 1) 30 else billingCycleStartDay - 1} of next month (approx).",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
@@ -944,7 +945,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.secondary
                 )
                 Text(
-                    text = "Version 1.0.0.2 • Secure Ledger",
+                    text = "Version 1.0.0.4 • Secure Ledger",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )

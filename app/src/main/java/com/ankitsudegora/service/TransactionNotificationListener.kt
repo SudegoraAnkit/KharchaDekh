@@ -38,6 +38,20 @@ class TransactionNotificationListener : NotificationListenerService() {
             Log.d("TxnNotification", "Successfully parsed notification: $parsed")
             CoroutineScope(Dispatchers.IO).launch {
                 val db = AppDatabase.getDatabase(applicationContext)
+                
+                val minTimestamp = System.currentTimeMillis() - 15000L
+                val duplicateCount = db.transactionDao().getMatchingTransactionCount(
+                    amount = parsed.amount,
+                    type = parsed.type,
+                    merchant = parsed.merchant,
+                    minTimestamp = minTimestamp
+                )
+                
+                if (duplicateCount > 0) {
+                    Log.w("TxnNotification", "Duplicate transaction detected via persistent DB check. Dropping alert. Amount: ${parsed.amount}, Merchant: ${parsed.merchant}")
+                    return@launch
+                }
+
                 val transaction = Transaction(
                     amount = parsed.amount,
                     type = parsed.type,

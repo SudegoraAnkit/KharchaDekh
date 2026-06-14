@@ -10,6 +10,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -31,7 +32,9 @@ import java.util.*
 fun CalendarScreen(
     allTransactions: List<TransactionWithCategory>,
     onDeleteTransaction: (Transaction) -> Unit,
-    onEditTransaction: (Long) -> Unit
+    onEditTransaction: (Long) -> Unit,
+    onExportCsv: (List<TransactionWithCategory>) -> Unit,
+    onExportPdf: (List<TransactionWithCategory>) -> Unit
 ) {
     var calendarState by remember { mutableStateOf(Calendar.getInstance()) }
     var selectedDate by remember { mutableStateOf<Calendar?>(Calendar.getInstance()) }
@@ -111,6 +114,16 @@ fun CalendarScreen(
                 !item.transaction.isPending
             }
         } ?: emptyList()
+    }
+
+    val monthTransactions = remember(allTransactions, currentYear, currentMonth) {
+        val cal = Calendar.getInstance()
+        allTransactions.filter { item ->
+            cal.timeInMillis = item.transaction.timestamp
+            cal.get(Calendar.YEAR) == currentYear &&
+            cal.get(Calendar.MONTH) == currentMonth &&
+            !item.transaction.isPending
+        }
     }
 
     LazyColumn(
@@ -196,6 +209,87 @@ fun CalendarScreen(
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
+                }
+            }
+        }
+
+        item {
+            Card(
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.5f)
+                ),
+                modifier = Modifier.fillMaxWidth().testTag("calendar_monthly_summary_card")
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text(
+                                text = "Monthly Total Spend",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.7f)
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            val monthlyTotal = dailyDebitTotals.values.sum()
+                            Text(
+                                text = "₹${"%,.2f".format(monthlyTotal)}",
+                                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Black),
+                                color = MaterialTheme.colorScheme.onSecondaryContainer
+                            )
+                        }
+                        
+                        Icon(
+                            imageVector = Icons.AutoMirrored.Filled.TrendingUp,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(32.dp)
+                        )
+                    }
+                    
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Button(
+                            onClick = { onExportCsv(monthTransactions) },
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Text("Export CSV", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                        
+                        OutlinedButton(
+                            onClick = { onExportPdf(monthTransactions) },
+                            modifier = Modifier.weight(1f).height(40.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary),
+                            colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.primary)
+                        ) {
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(16.dp))
+                                Text("Export PDF", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
                 }
             }
         }

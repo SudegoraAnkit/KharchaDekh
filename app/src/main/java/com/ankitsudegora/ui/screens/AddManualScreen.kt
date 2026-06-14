@@ -11,6 +11,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -54,10 +55,18 @@ fun AddManualScreen(
     var selectedTimestamp by remember { mutableStateOf(System.currentTimeMillis()) }
     val calendar = remember { Calendar.getInstance() }
     
-    // Auto-select first category if available
-    LaunchedEffect(categories) {
-        if (selectedCategoryId == null && categories.isNotEmpty()) {
-            selectedCategoryId = categories.firstOrNull { it.name.lowercase() != "others" }?.id ?: categories.firstOrNull()?.id
+    val filteredCategories = remember(categories, transactionType) {
+        val inflowNames = setOf("salary", "refund", "interest", "other inflow")
+        if (transactionType == "CREDIT") {
+            categories.filter { it.name.lowercase() in inflowNames }
+        } else {
+            categories.filter { it.name.lowercase() !in inflowNames }
+        }
+    }
+
+    LaunchedEffect(filteredCategories) {
+        if (selectedCategoryId == null || filteredCategories.none { it.id == selectedCategoryId }) {
+            selectedCategoryId = filteredCategories.firstOrNull { it.name.lowercase() != "others" }?.id ?: filteredCategories.firstOrNull()?.id
         }
     }
 
@@ -79,7 +88,7 @@ fun AddManualScreen(
                 onClick = onNavigateBack,
                 modifier = Modifier.testTag("manual_back_btn")
             ) {
-                Icon(Icons.Default.ArrowBack, "Back")
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, "Back")
             }
             Text(
                 text = "Quick Log Transaction",
@@ -250,7 +259,7 @@ fun AddManualScreen(
             val columns = 4
 
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                categories.chunked(columns).forEach { row ->
+                filteredCategories.chunked(columns).forEach { row ->
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -373,7 +382,7 @@ fun AddManualScreen(
             onValueChange = { notes = it },
             label = { Text("Notes (Optional)") },
             placeholder = { Text("Add transaction notes e.g., dinner with friends, travel fuel") },
-            leadingIcon = { Icon(Icons.Default.Notes, null) },
+            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Notes, null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
