@@ -45,7 +45,18 @@ data class Transaction(
     val smsSenderId: String? = null // For trace tracking
 )
 
-@Entity(tableName = "recurring_schedules")
+@Entity(
+    tableName = "recurring_schedules",
+    foreignKeys = [
+        ForeignKey(
+            entity = Category::class,
+            parentColumns = ["id"],
+            childColumns = ["categoryId"],
+            onDelete = ForeignKey.SET_NULL
+        )
+    ],
+    indices = [Index(value = ["categoryId"])]
+)
 data class RecurringSchedule(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val amount: Double,
@@ -166,7 +177,7 @@ interface RecurringScheduleDao {
     suspend fun deleteSchedule(schedule: RecurringSchedule)
 }
 
-@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class], version = 4, exportSchema = false)
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class], version = 5, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
@@ -192,6 +203,21 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_4_5 = object : Migration(4, 5) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Rename old table
+                db.execSQL("ALTER TABLE `recurring_schedules` RENAME TO `recurring_schedules_old`")
+                // 2. Create new table with foreign key
+                db.execSQL("CREATE TABLE IF NOT EXISTS `recurring_schedules` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `amount` REAL NOT NULL, `type` TEXT NOT NULL, `merchant` TEXT NOT NULL, `categoryId` INTEGER, `notes` TEXT, `paymentMethod` TEXT NOT NULL, `frequency` TEXT NOT NULL, `lastTriggered` INTEGER NOT NULL, `nextTriggerTime` INTEGER NOT NULL, `isActive` INTEGER NOT NULL, FOREIGN KEY(`categoryId`) REFERENCES `categories`(`id`) ON UPDATE NO ACTION ON DELETE SET NULL )")
+                // 3. Copy data
+                db.execSQL("INSERT INTO `recurring_schedules` (`id`, `amount`, `type`, `merchant`, `categoryId`, `notes`, `paymentMethod`, `frequency`, `lastTriggered`, `nextTriggerTime`, `isActive`) SELECT `id`, `amount`, `type`, `merchant`, `categoryId`, `notes`, `paymentMethod`, `frequency`, `lastTriggered`, `nextTriggerTime`, `isActive` FROM `recurring_schedules_old`")
+                // 4. Drop old table
+                db.execSQL("DROP TABLE `recurring_schedules_old`")
+                // 5. Create index
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_recurring_schedules_categoryId` ON `recurring_schedules` (`categoryId`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -199,7 +225,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
                 .fallbackToDestructiveMigration(true)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
