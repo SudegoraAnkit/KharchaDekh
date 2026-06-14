@@ -51,7 +51,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao(), db.recurringScheduleDao())
     private val prefs = application.getSharedPreferences("kharchadekh_prefs", Context.MODE_PRIVATE)
 
-    // User configurations & settings initialized first to avoid sequential evaluation order issues
     private val _billingCycleStartDay = MutableStateFlow(prefs.getInt("billing_cycle_start_day", 1))
     val billingCycleStartDay: StateFlow<Int> = _billingCycleStartDay.asStateFlow()
 
@@ -76,7 +75,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val _autoBackupNight = MutableStateFlow(prefs.getBoolean("auto_backup_night", false))
     val autoBackupNight: StateFlow<Boolean> = _autoBackupNight.asStateFlow()
 
-    // Active timestamp StateFlow updating periodically to fix the Frozen Time bug
     private val _currentTimeMillis = MutableStateFlow(System.currentTimeMillis())
     val currentTimeMillis: StateFlow<Long> = _currentTimeMillis.asStateFlow()
 
@@ -87,13 +85,11 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _activeEnrichId.value = id
     }
 
-    // Onboarding DPDP consent state
     private val _onboardingState = MutableStateFlow<OnboardingState>(
         if (prefs.getBoolean("dpdp_consent_granted", false)) OnboardingState.Completed else OnboardingState.Required
     )
     val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
 
-    // Active transactions & categories
     val allTransactions: StateFlow<List<TransactionWithCategory>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
@@ -106,11 +102,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val allSchedules: StateFlow<List<RecurringSchedule>> = repository.allSchedules
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    // UI state for filter tab selection
     private val _timeboxFilter = MutableStateFlow(TimeboxFilter.MONTHLY)
     val timeboxFilter: StateFlow<TimeboxFilter> = _timeboxFilter.asStateFlow()
 
-    // Analytics state calculated reactively based on transactions, selected filter, time tracking, and custom cycle
     val analyticsState: StateFlow<AnalyticsState> = combine(
         allTransactions,
         _timeboxFilter,
@@ -120,14 +114,12 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         calculateAnalytics(txns, filter, now, startDay)
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), AnalyticsState())
 
-    // Billing Cycle Start Day update
     fun updateBillingCycleStartDay(day: Int) {
         val validDay = day.coerceIn(1, 30)
         _billingCycleStartDay.value = validDay
         prefs.edit().putInt("billing_cycle_start_day", validDay).apply()
     }
 
-    // Billing-cycle specific spends for budgets (always reflects current billing cycle and uses active time)
     val monthlyCategorySpends: StateFlow<Map<Long, Double>> = combine(
         allTransactions,
         _billingCycleStartDay,
@@ -167,7 +159,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val startOfCycle = getStartOfBillingCycleTimestamp(startDay, now)
         val remainingDays = getRemainingDaysInBillingCycle(startDay, now)
         
-        // Sum total non-recurring spent in current cycle (Discretionary)
         val discretionarySpent = txns.filter {
             !it.transaction.isPending &&
             it.transaction.type == "DEBIT" &&
@@ -178,7 +169,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val targetSavings = income * (savingsPct / 100.0)
         val spendingCap = income * (spendingPct / 100.0)
         
-        // Sum active fixed commitments (Rent, Utilities, EMI etc.)
         val rawFixedCommitments = schedules.filter { it.isActive }.sumOf { s ->
             when (s.frequency.uppercase()) {
                 "DAILY" -> s.amount * 30.0
@@ -189,7 +179,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             }
         }
 
-        // Sum approved transactions from recurring schedules in the current billing cycle to deduct from projection
         val realizedRecurring = txns.filter {
             !it.transaction.isPending &&
             it.transaction.type == "DEBIT" &&
@@ -197,9 +186,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             it.transaction.timestamp >= startOfCycle
         }.sumOf { it.transaction.amount }
 
-        // Adjusted fixed commitments = remaining unspent fixed commitments projection
         val fixedCommitments = (rawFixedCommitments - realizedRecurring).coerceAtLeast(0.0)
-        
         val discretionarySpendingCap = (spendingCap - rawFixedCommitments).coerceAtLeast(0.0)
         val discretionaryLeft = spendingCap - rawFixedCommitments - discretionarySpent
         val daily = (discretionaryLeft / remainingDays).coerceAtLeast(0.0)
@@ -216,7 +203,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         )
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), ForecastAllowance())
 
-    // Reminder and Profile updates
     fun updateUserName(name: String) {
         val trimmed = name.trim()
         val finalName = if (trimmed.isBlank()) "User" else trimmed
@@ -224,7 +210,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putString("user_name", finalName).apply()
     }
 
-    // Budgeting goals updates
     fun updateBudgetGoals(income: Double, savingsPct: Int, spendingPct: Int) {
         _monthlyIncome.value = income
         _savingsTargetPct.value = savingsPct
@@ -236,24 +221,22 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             .apply()
     }
 
-    // Auto-backup night update
     fun updateAutoBackupNight(enabled: Boolean) {
         _autoBackupNight.value = enabled
         prefs.edit().putBoolean("auto_backup_night", enabled).apply()
     }
 
     init {
-        // Schedule daily reminders as per saved time on init (without resetting current delay)
+        // Core Bug Resolution: pass forceRestart = false on startup init tasks to preserve queue timers
         if (_onboardingState.value == OnboardingState.Completed) {
             setupWorkReminder(forceRestart = false)
         }
         viewModelScope.launch {
             processRecurringSchedules()
         }
-        // Ticker to refresh currentTimeMillis StateFlow and prevent stale layout state past midnight
         viewModelScope.launch {
             while (true) {
-                kotlinx.coroutines.delay(30000) // update every 30 seconds
+                kotlinx.coroutines.delay(30000)
                 _currentTimeMillis.value = System.currentTimeMillis()
             }
         }
@@ -264,12 +247,10 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val now = System.currentTimeMillis()
         schedules.forEach { s ->
             if (s.nextTriggerTime <= 0) {
-                // Initialize next trigger time to the future to prevent any loop/crash
                 val nextTime = calculateNextTriggerTime(s.frequency, now)
                 val updatedSchedule = s.copy(lastTriggered = now, nextTriggerTime = nextTime)
                 repository.updateSchedule(updatedSchedule)
             } else if (now >= s.nextTriggerTime) {
-                // Insert one pending transaction for the triggered schedule
                 val transaction = Transaction(
                     amount = s.amount,
                     type = s.type,
@@ -278,12 +259,11 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     notes = s.notes ?: "Scheduled payment auto-trigger",
                     timestamp = s.nextTriggerTime,
                     paymentMethod = s.paymentMethod,
-                    isPending = true,  // Requires manual review
+                    isPending = true,
                     source = "RECURRING"
                 )
                 repository.insertTransaction(transaction)
 
-                // Advance nextTriggerTime in O(1) until it is in the future (i.e. nextTriggerTime > now)
                 val (prevTime, nextTime) = advanceTriggerTimeToFuture(s.frequency, s.nextTriggerTime, now)
                 val updatedSchedule = s.copy(lastTriggered = prevTime, nextTriggerTime = nextTime)
                 repository.updateSchedule(updatedSchedule)
@@ -321,14 +301,11 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
 
         var nextTime = getTimeAfterSteps(n)
-        
-        // Adjust n to ensure nextTime is the smallest step such that nextTime > now
         while (nextTime <= now) {
             n++
             nextTime = getTimeAfterSteps(n)
         }
         
-        // Scale down if estimated too large (could happen due to approximate unit sizes like months/years)
         while (n > 1) {
             val prevTimeCandidate = getTimeAfterSteps(n - 1)
             if (prevTimeCandidate > now) {
@@ -365,7 +342,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putBoolean("dpdp_consent_granted", consent).apply()
         _onboardingState.value = if (consent) OnboardingState.Completed else OnboardingState.Required
         if (consent) {
-            setupWorkReminder()
+            setupWorkReminder(forceRestart = true)
         }
     }
 
@@ -477,7 +454,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 notes = notes,
                 timestamp = timestamp,
                 paymentMethod = paymentMethod,
-                isPending = false, // MANUAL log is never pending
+                isPending = false,
                 source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else "MANUAL"
             )
             repository.insertTransaction(transaction)
@@ -565,7 +542,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         viewModelScope.launch {
             val bodyLower = body.lowercase()
             val isDebit = bodyLower.contains("debited") || bodyLower.contains("withdrawn") || bodyLower.contains("spent") || bodyLower.contains("paid") || bodyLower.contains("sent")
-            val isCredit = bodyLower.contains("credited") || bodyLower.contains("received") || bodyLower.contains("added")
             val type = if (isDebit) "DEBIT" else "CREDIT"
             
             val amountRegex = Regex("(?:rs\\.?|inr|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", RegexOption.IGNORE_CASE)
@@ -661,6 +637,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             .putInt("reminder_hour", hour)
             .putInt("reminder_minute", minute)
             .apply()
+        // Force work update cleanly when changing user runtime properties
         setupWorkReminder(forceRestart = true)
     }
 
@@ -700,7 +677,6 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     currentYear == itemYear && currentDay == itemDay
                 }
                 TimeboxFilter.WEEKLY -> {
-                    // Check if it's within the preceding 7 days
                     now - itemTime <= 7L * 24 * 60 * 60 * 1000
                 }
                 TimeboxFilter.MONTHLY -> {
@@ -723,7 +699,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             val amount = item.transaction.amount
             if (item.transaction.type == "DEBIT") {
                 totalDebit += amount
-                totalExpense += amount // Expense is strictly Debits
+                totalExpense += amount
 
                 val cat = item.category ?: Category(name = "Uncategorized", iconResName = "category")
                 categoryMap[cat] = categoryMap.getOrDefault(cat, 0.0) + amount
