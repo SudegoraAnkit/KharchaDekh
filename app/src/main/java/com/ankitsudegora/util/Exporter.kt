@@ -87,13 +87,12 @@ object Exporter {
         }
 
         var pageNumber = 1
-        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageNumber).create() // A4 Size: 595 x 842 pt
+        val pageInfo = PdfDocument.PageInfo.Builder(595, 842, pageNumber).create()
         var page = pdfDocument.startPage(pageInfo)
         var canvas = page.canvas
         var currentY = 50f
         var isPageFinished = false
 
-        // Helper to draw the header for a given page
         fun drawPageHeader(canvas: Canvas, pageNum: Int) {
             var y = 50f
             if (pageNum == 1) {
@@ -103,7 +102,6 @@ object Exporter {
                 canvas.drawText("Generated on: $dateStr", 50f, y, subHeaderPaint)
                 y += 30f
 
-                // Draw summary metrics on page 1
                 val totalDebit = transactions.filter { it.transaction.type == "DEBIT" }.sumOf { it.transaction.amount }
                 val totalCredit = transactions.filter { it.transaction.type == "CREDIT" }.sumOf { it.transaction.amount }
                 
@@ -119,7 +117,6 @@ object Exporter {
                 y += 30f
             }
 
-            // Draw Table Header
             paint.color = Color.BLACK
             paint.strokeWidth = 1f
             canvas.drawLine(50f, y, 545f, y, paint)
@@ -139,20 +136,17 @@ object Exporter {
             currentY = y
         }
 
-        // Helper to draw the footer for a given page
         fun drawPageFooter(canvas: Canvas, pageNum: Int) {
             canvas.drawText("Made with 💝 by Ankit Sudegora • 100% Offline & Private", 595f / 2f, 815f, footerPaint)
             canvas.drawText("Page $pageNum", 545f, 815f, pageNumPaint)
         }
 
-        // Initialize the first page header
         drawPageHeader(canvas, pageNumber)
 
         val dateFormat = SimpleDateFormat("dd MMM yy", Locale.getDefault())
 
         for (item in transactions) {
             val rowHeight = 22f
-            // If drawing this row would exceed the bottom margin threshold (50 points from bottom edge: 842 - 50 = 792)
             if (currentY + rowHeight > 842f - 50f) {
                 drawPageFooter(canvas, pageNumber)
                 pdfDocument.finishPage(page)
@@ -169,12 +163,8 @@ object Exporter {
 
             val t = item.transaction
             val dateFormatted = dateFormat.format(Date(t.timestamp))
-            
-            // Use TextUtils.ellipsize for merchant column (width available from 150f to 320f is 170f, using 155f defensively)
             val merchantName = TextUtils.ellipsize(t.merchant, textPaint, 155f, TruncateAt.END).toString()
-            
             val catName = item.category?.name ?: "Uncategorized"
-            // Use TextUtils.ellipsize for category column (width available from 320f to 420f is 100f, using 90f defensively)
             val categoryName = TextUtils.ellipsize(catName, textPaint, 90f, TruncateAt.END).toString()
             
             canvas.drawText(dateFormatted, 50f, currentY, textPaint)
@@ -188,7 +178,6 @@ object Exporter {
             currentY += rowHeight
         }
 
-        // Finalize last page defensively
         if (!isPageFinished) {
             drawPageFooter(canvas, pageNumber)
             pdfDocument.finishPage(page)
