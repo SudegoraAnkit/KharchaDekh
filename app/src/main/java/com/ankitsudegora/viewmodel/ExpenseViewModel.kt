@@ -283,17 +283,69 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 )
                 repository.insertTransaction(transaction)
 
-                // Advance nextTriggerTime until it is in the future (i.e. nextTriggerTime > now)
-                var nextTime = s.nextTriggerTime
-                var prevTime = s.lastTriggered
-                while (now >= nextTime) {
-                    prevTime = nextTime
-                    nextTime = calculateNextTriggerTime(s.frequency, prevTime)
-                }
+                // Advance nextTriggerTime in O(1) until it is in the future (i.e. nextTriggerTime > now)
+                val (prevTime, nextTime) = advanceTriggerTimeToFuture(s.frequency, s.nextTriggerTime, now)
                 val updatedSchedule = s.copy(lastTriggered = prevTime, nextTriggerTime = nextTime)
                 repository.updateSchedule(updatedSchedule)
             }
         }
+    }
+
+    private fun advanceTriggerTimeToFuture(frequency: String, nextTriggerTime: Long, now: Long): Pair<Long, Long> {
+        val field = when (frequency.uppercase()) {
+            "DAILY" -> Calendar.DAY_OF_YEAR
+            "WEEKLY" -> Calendar.WEEK_OF_YEAR
+            "MONTHLY" -> Calendar.MONTH
+            "YEARLY" -> Calendar.YEAR
+            else -> Calendar.MONTH
+        }
+        val approxUnitMs = when (frequency.uppercase()) {
+            "DAILY" -> 24 * 3600 * 1000L
+            "WEEKLY" -> 7 * 24 * 3600 * 1000L
+            "MONTHLY" -> 30 * 24 * 3600 * 1000L
+            "YEARLY" -> 365 * 24 * 3600 * 1000L
+            else -> 30 * 24 * 3600 * 1000L
+        }
+        
+        val diff = now - nextTriggerTime
+        var n = (diff / approxUnitMs).toInt()
+        if (n < 1) {
+            n = 1
+        }
+        
+        fun getTimeAfterSteps(steps: Int): Long {
+            val cal = Calendar.getInstance()
+            cal.timeInMillis = nextTriggerTime
+            cal.add(field, steps)
+            return cal.timeInMillis
+        }
+
+        var nextTime = getTimeAfterSteps(n)
+        
+        // Adjust n to ensure nextTime is the smallest step such that nextTime > now
+        while (nextTime <= now) {
+            n++
+            nextTime = getTimeAfterSteps(n)
+        }
+        
+        // Scale down if estimated too large (could happen due to approximate unit sizes like months/years)
+        while (n > 1) {
+            val prevTimeCandidate = getTimeAfterSteps(n - 1)
+            if (prevTimeCandidate > now) {
+                n--
+                nextTime = prevTimeCandidate
+            } else {
+                break
+            }
+        }
+        
+        val prevTime = if (n == 1) {
+            nextTriggerTime
+        } else {
+            getTimeAfterSteps(n - 1)
+        }
+        
+        return Pair(prevTime, nextTime)
     }
 
     private fun calculateNextTriggerTime(frequency: String, fromTime: Long): Long {

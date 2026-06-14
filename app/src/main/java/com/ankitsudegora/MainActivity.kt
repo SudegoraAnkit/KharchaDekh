@@ -298,8 +298,8 @@ class MainActivity : ComponentActivity() {
                                 allTransactions = allTransactions,
                                 onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
                                 onEditTransaction = { id -> viewModel.setActiveEnrichId(id) },
-                                onExportCsv = { txns -> onExportCsvClick(txns) },
-                                onExportPdf = { txns -> onExportPdfClick(txns) }
+                                onExportCsv = { txns -> performExportCsv(txns) },
+                                onExportPdf = { txns -> performExportPdf(txns) }
                             )
                         }
                         AppTab.ADD_MANUAL -> {

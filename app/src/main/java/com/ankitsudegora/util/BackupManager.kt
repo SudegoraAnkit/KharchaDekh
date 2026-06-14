@@ -31,23 +31,25 @@ object BackupManager {
                 ZipOutputStream(outputStream).use { zipOut ->
                     // 1. Write database
                     val dbFile = context.getDatabasePath("kharcha_dekh_db")
-                    if (dbFile.exists()) {
-                        zipOut.putNextEntry(ZipEntry("database.db"))
-                        dbFile.inputStream().use { inputStream ->
-                            inputStream.copyTo(zipOut)
-                        }
-                        zipOut.closeEntry()
+                    if (!dbFile.exists()) {
+                        throw IllegalStateException("Database file does not exist: ${dbFile.absolutePath}")
                     }
+                    zipOut.putNextEntry(ZipEntry("database.db"))
+                    dbFile.inputStream().use { inputStream ->
+                        inputStream.copyTo(zipOut)
+                    }
+                    zipOut.closeEntry()
 
                     // 2. Write preferences
                     val sharedPrefsFile = File(context.dataDir, "shared_prefs/kharchadekh_prefs.xml")
-                    if (sharedPrefsFile.exists()) {
-                        zipOut.putNextEntry(ZipEntry("preferences.xml"))
-                        sharedPrefsFile.inputStream().use { inputStream ->
-                            inputStream.copyTo(zipOut)
-                        }
-                        zipOut.closeEntry()
+                    if (!sharedPrefsFile.exists()) {
+                        throw IllegalStateException("Preferences file does not exist: ${sharedPrefsFile.absolutePath}")
                     }
+                    zipOut.putNextEntry(ZipEntry("preferences.xml"))
+                    sharedPrefsFile.inputStream().use { inputStream ->
+                        inputStream.copyTo(zipOut)
+                    }
+                    zipOut.closeEntry()
                 }
             }
             true
@@ -164,23 +166,25 @@ object BackupManager {
                 ZipOutputStream(outputStream).use { zipOut ->
                     // 1. Write database
                     val dbFile = context.getDatabasePath("kharcha_dekh_db")
-                    if (dbFile.exists()) {
-                        zipOut.putNextEntry(ZipEntry("database.db"))
-                        dbFile.inputStream().use { inputStream ->
-                            inputStream.copyTo(zipOut)
-                        }
-                        zipOut.closeEntry()
+                    if (!dbFile.exists()) {
+                        throw IllegalStateException("Database file does not exist: ${dbFile.absolutePath}")
                     }
+                    zipOut.putNextEntry(ZipEntry("database.db"))
+                    dbFile.inputStream().use { inputStream ->
+                        inputStream.copyTo(zipOut)
+                    }
+                    zipOut.closeEntry()
 
                     // 2. Write preferences
                     val sharedPrefsFile = File(context.dataDir, "shared_prefs/kharchadekh_prefs.xml")
-                    if (sharedPrefsFile.exists()) {
-                        zipOut.putNextEntry(ZipEntry("preferences.xml"))
-                        sharedPrefsFile.inputStream().use { inputStream ->
-                            inputStream.copyTo(zipOut)
-                        }
-                        zipOut.closeEntry()
+                    if (!sharedPrefsFile.exists()) {
+                        throw IllegalStateException("Preferences file does not exist: ${sharedPrefsFile.absolutePath}")
                     }
+                    zipOut.putNextEntry(ZipEntry("preferences.xml"))
+                    sharedPrefsFile.inputStream().use { inputStream ->
+                        inputStream.copyTo(zipOut)
+                    }
+                    zipOut.closeEntry()
                 }
             }
             backupFile

@@ -30,7 +30,8 @@ class EnrichmentScreenTest {
             categoryId = 1,
             paymentMethod = "CASH",
             isPending = false,
-            source = "MANUAL"
+            source = "MANUAL",
+            timestamp = System.currentTimeMillis()
         )
         composeTestRule.setContent {
             KharchaDekhTheme {

@@ -14,8 +14,8 @@ android {
     applicationId = "com.ankitsudegora"
     minSdk = 24
     targetSdk = 35
-    versionCode = 3
-    versionName = "1.0.0.3"
+    versionCode = 4
+    versionName = "1.0.0.4"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
   }
@@ -23,10 +23,19 @@ android {
   signingConfigs {
     create("release") {
       val keystorePath = System.getenv("KEYSTORE_PATH") ?: "${rootDir}/my-upload-key.jks"
-      storeFile = file(keystorePath)
-      storePassword = System.getenv("STORE_PASSWORD")
-      keyAlias = "upload"
-      keyPassword = System.getenv("KEY_PASSWORD")
+      val storePwd = System.getenv("STORE_PASSWORD")
+      val keyPwd = System.getenv("KEY_PASSWORD")
+      if (storePwd.isNullOrEmpty() || keyPwd.isNullOrEmpty()) {
+        storeFile = file("${rootDir}/debug.keystore")
+        storePassword = "android"
+        keyAlias = "androiddebugkey"
+        keyPassword = "android"
+      } else {
+        storeFile = file(keystorePath)
+        storePassword = storePwd
+        keyAlias = "upload"
+        keyPassword = keyPwd
+      }
     }
     create("debugConfig") {
       storeFile = file("${rootDir}/debug.keystore")
