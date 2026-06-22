@@ -1,0 +1,44 @@
+========================================================================
+GOOGLE PLAY STORE LISTING & RELEASE METADATA
+========================================================================
+
+------------------------------------------------------------------------
+1. APP METADATA
+------------------------------------------------------------------------
+Title (Max 50 chars):
+KharchaDekh - Secure Offline Expense Manager
+
+Short Description (Max 80 chars):
+Track daily expenses, manage budgets, and export statements 100% offline.
+
+------------------------------------------------------------------------
+2. FULL DESCRIPTION (Max 4000 chars)
+------------------------------------------------------------------------
+Take complete control of your personal finances with KharchaDekh—a beautiful, intuitive, and 100% secure offline expense manager designed to make budget tracking effortless. 
+
+Unlike other finance apps, KharchaDekh respects your privacy. All your data is stored locally on your device, meaning your financial records never leave your control. No ads, no cloud tracking, and no privacy compromises.
+
+KEY FEATURES:
+* Offline Security: Your financial ledger is stored completely on your device.
+* Recurring Payments: Schedule rent, salaries, subscriptions, and utility logs with smart auto-trigger intervals.
+* Custom Budgets: Set category-specific monthly spending caps and get daily/weekly discretionary allowances.
+* PDF & CSV Exports: Generate and share clean, professional financial statements directly from your calendar.
+* Flexible Billing Cycles: Custom cycles (e.g., 28-day, 30-day, or custom month-starts) to match your pay schedule.
+* Smart Data Restores: Seamlessly restore and validate legacy data backups with single-click error reporting.
+
+PRIVACY & SAFETY:
+* Zero Analytics / Tracking: We collect no telemetry data or personal information.
+* Secure Local Backups: Package your data into encrypted ZIP files and store them wherever you prefer.
+
+FUTURE ROADMAP:
+* Encrypted Cloud Sync: Optional, self-hosted, or personal drive backups.
+* AI Scanning: Smart receipt scanning and offline transaction processing.
+* Advanced Visual Analytics: Interactive charts, trends, and wealth forecast insights.
+
+------------------------------------------------------------------------
+3. WHAT'S NEW IN v1.0.0.5 (Max 500 chars)
+------------------------------------------------------------------------
+* Startup Fix: Resolved startup crash loop by optimizing recurring schedule calculations from O(N) to O(1).
+* Backup Security: Enhanced data safety by preventing corrupt zip generation when files are missing.
+* Calendar Export Flow: Export monthly statement files directly from the calendar monthly view.
+* Restore Validation: Fixed schema conflicts to ensure seamless database restoration from legacy files.
