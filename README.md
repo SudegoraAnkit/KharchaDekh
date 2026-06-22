@@ -3,7 +3,7 @@
 # KharchaDekh - Privacy-First Automated Expense Tracker
 
 ----
-> [Download Now](https://github.com/SudegoraAnkit/KharchaDekh/blob/main/.build-outputs/kd_1.0.0.4.apk)
+> [Download Now](https://play.google.com/store/apps/details?id=com.ankitsudegora)
 ----
 KharchaDekh is a smart, automated personal finance manager designed specifically for India. It operates **100% offline and locally**, parsing transaction notifications (banking and UPI alerts) on-device to respect user privacy in full compliance with the Digital Personal Data Protection (DPDP) Act 2023.
 
