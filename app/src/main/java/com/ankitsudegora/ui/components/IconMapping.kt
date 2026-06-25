@@ -34,6 +34,18 @@ fun getIconVector(name: String): ImageVector {
         "redeem" -> Icons.Default.Redeem
         "payments" -> Icons.Default.Payments
         "restore" -> Icons.Default.Restore
+        "credit_card" -> Icons.Default.CreditCard
+        "school" -> Icons.Default.School
+        "build" -> Icons.Default.Build
+        "real_estate_agent" -> Icons.Default.RealEstateAgent
+        "subscriptions" -> Icons.Default.Subscriptions
+        "groups" -> Icons.Default.Groups
+        "shield" -> Icons.Default.Shield
+        "description" -> Icons.Default.Description
+        "pets" -> Icons.Default.Pets
+        "card_giftcard" -> Icons.Default.CardGiftcard
+        "local_offer" -> Icons.Default.LocalOffer
+        "laptop" -> Icons.Default.Laptop
         else -> Icons.Default.Category
     }
 }

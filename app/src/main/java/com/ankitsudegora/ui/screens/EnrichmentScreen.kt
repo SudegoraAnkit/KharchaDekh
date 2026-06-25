@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
@@ -33,7 +34,7 @@ fun EnrichmentScreen(
     transactionId: Long,
     categories: List<Category>,
     onGetTransaction: suspend (Long) -> Transaction?,
-    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?) -> Unit,
+    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?, subCategory: String?) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     BackHandler {
@@ -48,6 +49,7 @@ fun EnrichmentScreen(
     var notes by remember { mutableStateOf("") }
     var transactionType by remember { mutableStateOf("DEBIT") } // DEBIT / CREDIT
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
+    var subCategory by remember { mutableStateOf<String?>(null) }
 
     val filteredCategories = remember(categories, transactionType) {
         val inflowNames = setOf("salary", "refund", "interest", "other inflow")
@@ -78,6 +80,34 @@ fun EnrichmentScreen(
             transactionType = txn.type
             selectedCategoryId = txn.categoryId ?: categories.firstOrNull { it.name.lowercase() != "others" }?.id ?: categories.firstOrNull()?.id
             isRecurringChecked = txn.source == "RECURRING"
+            subCategory = txn.subCategory
+        }
+    }
+
+    LaunchedEffect(selectedCategoryId) {
+        if (selectedCategoryId != existingTransaction?.categoryId) {
+            subCategory = null
+        }
+    }
+
+    val subCategoryOptions = remember(selectedCategoryId, categories) {
+        val selectedCat = categories.find { it.id == selectedCategoryId }
+        when (selectedCat?.name?.lowercase()) {
+            "interest" -> listOf("Savings Interest", "FD Interest", "PPF Interest", "Other Interest")
+            "rent" -> listOf("Home Rent", "Office Rent", "Vehicle Rent", "Equipment Rent")
+            "sip/invest" -> listOf("Mutual Funds", "Stocks / Equity", "Provident Fund", "Gold / Real Estate", "Other Investment")
+            "creditcard payment" -> listOf("HDFC Card", "SBI Card", "ICICI Card", "Other Credit Card")
+            "courses" -> listOf("Professional Skills", "Academic", "Language / Hobby", "Certifications")
+            "home maintenance" -> listOf("Repairs & Plumb", "Painting / Decor", "Cleaning Services", "Society Maintenance")
+            "subscriptions" -> listOf("OTT / Streaming", "Software / Apps", "Gym / Health", "Newspaper / News")
+            "domestic help" -> listOf("Maid Salary", "Cook Salary", "Driver Salary", "Security Guard")
+            "insurance" -> listOf("Health Insurance", "Life Insurance", "Car / Bike Insurance", "Home/Home Contents")
+            "taxes" -> listOf("Income Tax", "Property Tax", "Professional Tax", "Road Tax")
+            "pets" -> listOf("Pet Food", "Vet / Medicines", "Toys & Grooming", "Pet Boarding")
+            "gifts & charity" -> listOf("Festival Gifts", "Wedding Gifts", "NGO / Donations", "Birthday Gifts")
+            "cashback & rewards" -> listOf("UPI Scratch Card", "Credit Card Cashback", "Refund Reward", "Referral Bonus")
+            "freelance/side hustle" -> listOf("Consulting Work", "Writing/Content", "Software Gig", "Asset Sale")
+            else -> emptyList()
         }
     }
 
@@ -313,6 +343,36 @@ fun EnrichmentScreen(
             }
         }
 
+        // Detail sub-category selection row
+        if (subCategoryOptions.isNotEmpty()) {
+            Text(
+                text = "Select Detail Type",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                subCategoryOptions.forEach { option ->
+                    val isSel = subCategory == option
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { subCategory = if (isSel) null else option },
+                        label = { Text(option, style = MaterialTheme.typography.labelSmall) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                }
+            }
+        }
+
         // Optional Notes
         OutlinedTextField(
             value = notes,
@@ -417,7 +477,8 @@ fun EnrichmentScreen(
                     amt,
                     merchant.trim().ifBlank { "Unknown Merchant" },
                     transactionType,
-                    freq
+                    freq,
+                    subCategory
                 )
                 onNavigateBack()
             },

@@ -9,6 +9,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
@@ -35,7 +36,7 @@ import java.util.*
 @Composable
 fun AddManualScreen(
     categories: List<Category>,
-    onSaveTransaction: (amount: Double, type: String, merchant: String, categoryId: Long?, notes: String?, paymentMethod: String, timestamp: Long, recurringFrequency: String?) -> Unit,
+    onSaveTransaction: (amount: Double, type: String, merchant: String, categoryId: Long?, notes: String?, paymentMethod: String, timestamp: Long, recurringFrequency: String?, subCategory: String?) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -50,6 +51,7 @@ fun AddManualScreen(
 
     var isRecurringChecked by remember { mutableStateOf(false) }
     var selectedFrequency by remember { mutableStateOf("MONTHLY") }
+    var subCategory by remember { mutableStateOf<String?>(null) }
 
     // DateTime configuration
     var selectedTimestamp by remember { mutableStateOf(System.currentTimeMillis()) }
@@ -67,6 +69,31 @@ fun AddManualScreen(
     LaunchedEffect(filteredCategories) {
         if (selectedCategoryId == null || filteredCategories.none { it.id == selectedCategoryId }) {
             selectedCategoryId = filteredCategories.firstOrNull { it.name.lowercase() != "others" }?.id ?: filteredCategories.firstOrNull()?.id
+        }
+    }
+
+    LaunchedEffect(selectedCategoryId) {
+        subCategory = null
+    }
+
+    val subCategoryOptions = remember(selectedCategoryId, categories) {
+        val selectedCat = categories.find { it.id == selectedCategoryId }
+        when (selectedCat?.name?.lowercase()) {
+            "interest" -> listOf("Savings Interest", "FD Interest", "PPF Interest", "Other Interest")
+            "rent" -> listOf("Home Rent", "Office Rent", "Vehicle Rent", "Equipment Rent")
+            "sip/invest" -> listOf("Mutual Funds", "Stocks / Equity", "Provident Fund", "Gold / Real Estate", "Other Investment")
+            "creditcard payment" -> listOf("HDFC Card", "SBI Card", "ICICI Card", "Other Credit Card")
+            "courses" -> listOf("Professional Skills", "Academic", "Language / Hobby", "Certifications")
+            "home maintenance" -> listOf("Repairs & Plumb", "Painting / Decor", "Cleaning Services", "Society Maintenance")
+            "subscriptions" -> listOf("OTT / Streaming", "Software / Apps", "Gym / Health", "Newspaper / News")
+            "domestic help" -> listOf("Maid Salary", "Cook Salary", "Driver Salary", "Security Guard")
+            "insurance" -> listOf("Health Insurance", "Life Insurance", "Car / Bike Insurance", "Home/Home Contents")
+            "taxes" -> listOf("Income Tax", "Property Tax", "Professional Tax", "Road Tax")
+            "pets" -> listOf("Pet Food", "Vet / Medicines", "Toys & Grooming", "Pet Boarding")
+            "gifts & charity" -> listOf("Festival Gifts", "Wedding Gifts", "NGO / Donations", "Birthday Gifts")
+            "cashback & rewards" -> listOf("UPI Scratch Card", "Credit Card Cashback", "Refund Reward", "Referral Bonus")
+            "freelance/side hustle" -> listOf("Consulting Work", "Writing/Content", "Software Gig", "Asset Sale")
+            else -> emptyList()
         }
     }
 
@@ -317,6 +344,36 @@ fun AddManualScreen(
             }
         }
 
+        // Detail sub-category selection row
+        if (subCategoryOptions.isNotEmpty()) {
+            Text(
+                text = "Select Detail Type",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground
+            )
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 4.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                subCategoryOptions.forEach { option ->
+                    val isSel = subCategory == option
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { subCategory = if (isSel) null else option },
+                        label = { Text(option, style = MaterialTheme.typography.labelSmall) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                        )
+                    )
+                }
+            }
+        }
+
         // Payment Mode Radio selection block
         Text(
             text = "Payment Mode",
@@ -482,7 +539,8 @@ fun AddManualScreen(
                     notes.trim().ifBlank { null },
                     paymentMethod,
                     selectedTimestamp,
-                    freq
+                    freq,
+                    subCategory
                 )
             },
             enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),

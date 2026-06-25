@@ -28,9 +28,12 @@ object BackupManager {
      */
     suspend fun backupDatabase(context: Context, destinationUri: Uri): Boolean = withContext(Dispatchers.IO) {
         try {
-            val db = AppDatabase.getDatabase(context)
-            // Force write-ahead log checkpoint to flush all cached transaction journals to the main db file
-            db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+            // Close active database instance to flush WAL logs to main file
+            try {
+                AppDatabase.closeAndResetInstance()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
 
             context.contentResolver.openOutputStream(destinationUri)?.use { outputStream ->
                 ZipOutputStream(outputStream).use { zipOut ->
@@ -202,8 +205,12 @@ object BackupManager {
      */
     suspend fun backupDatabaseToDefaultFile(context: Context): File? = withContext(Dispatchers.IO) {
         try {
-            val db = AppDatabase.getDatabase(context)
-            db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(FULL)").close()
+            // Close active database instance to flush WAL logs to main file
+            try {
+                AppDatabase.closeAndResetInstance()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
 
             val backupDir = File(context.getExternalFilesDir(null), "backups")
             if (!backupDir.exists()) backupDir.mkdirs()
