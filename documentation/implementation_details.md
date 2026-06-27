@@ -166,3 +166,51 @@ private fun scheduleSingleReminder(
     WorkManager.getInstance(context).enqueueUniquePeriodicWork(workName, policy, request)
 }
 ```
+
+---
+
+## 5. WAL Checkpoint & Backup Reset Sequence
+
+In Room database instances using Write-Ahead Logging (WAL) journal mode, data changes are written to temporary `-wal` and `-shm` logs rather than the primary database file. Taking a direct file backup while the Room instance is alive results in missing database states (frequently up to 2-3 days stale).
+
+I implemented the following database connection close routine in `BackupManager` to resolve WAL backup lag:
+
+```kotlin
+fun backupDatabase(...) {
+    // 1. Force close the Room connection to merge all WAL segments into the primary DB file
+    AppDatabase.closeAndResetInstance()
+
+    // 2. Perform direct, safe file copy of the fully compacted db file to zip
+    val dbFile = context.getDatabasePath("kharcha_dekh_db")
+    copyFileToZip(dbFile, targetZip)
+}
+```
+
+---
+
+## 6. SQLite Migration 5 to 6 Path
+
+Migration 5 to 6 upgrades the database schema atomically. It handles two major requirements:
+1. Appends the nullable `subCategory` column to existing `transactions` and `recurring_schedules` tables.
+2. Creates the two new shopping tables (`grocery_lists` and `grocery_items`) with proper foreign keys and indexes.
+
+```kotlin
+val MIGRATION_5_6 = object : Migration(5, 6) {
+    override fun migrate(db: SupportSQLiteDatabase) {
+        // 1. Add nullable subCategory column to transactions
+        db.execSQL("ALTER TABLE `transactions` ADD COLUMN `subCategory` TEXT")
+
+        // 2. Add nullable subCategory column to recurring schedules
+        db.execSQL("ALTER TABLE `recurring_schedules` ADD COLUMN `subCategory` TEXT")
+
+        // 3. Create grocery lists table
+        db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_lists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `budgetCap` REAL, `createdTimestamp` INTEGER NOT NULL, `status` TEXT NOT NULL)")
+
+        // 4. Create grocery items table with cascade delete constraint
+        db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_items` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `listId` INTEGER NOT NULL, `name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `price` REAL NOT NULL, `isChecked` INTEGER NOT NULL, FOREIGN KEY(`listId`) REFERENCES `grocery_lists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE)")
+
+        // 5. Index listId to prevent full table scans
+        db.execSQL("CREATE INDEX IF NOT EXISTS `index_grocery_items_listId` ON `grocery_items` (`listId`)")
+    }
+}
+```

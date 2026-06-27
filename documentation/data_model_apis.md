@@ -8,7 +8,6 @@ Since KharchaDekh runs entirely on-device, my data architecture is built around 
 
 I designed three primary relational entities in Room.
 
-```
   ┌────────────────────────────────────────────────────────┐
   │                        Category                        │
   ├────────────────────────────────────────────────────────┤
@@ -36,7 +35,19 @@ I designed three primary relational entities in Room.
   │    isPending: Boolean  │  │    lastTriggered: Long     │
   │    source   : String   │  │    nextTrigger  : Long     │
   │    senderId : String?  │  │    isActive     : Boolean  │
+  │    subCat   : String?  │  │    subCat       : String?  │
   └────────────────────────┘  └────────────────────────────┘
+
+  ┌────────────────────────┐  1     0..* ┌─────────────────┐
+  │      GroceryList       ├─────────────►│   GroceryItem   │
+  ├────────────────────────┤             ├─────────────────┤
+  │ PK id       : Long     │             │ PK id  : Long   │
+  │    name     : String   │             │ FK list: Long   │
+  │    budgetCap: Double?  │             │    name: String │
+  │    created  : Long     │             │    qty : Int    │
+  │    status   : String   │             │    prc : Double │
+  └────────────────────────┘             │    isChk: Boolean│
+                                         └─────────────────┘
 ```
 
 ### A. Category Entity (`categories` table)
@@ -60,6 +71,7 @@ Represents a finalized or pending financial entry.
 *   `isPending` (Boolean): Flag representing unfinalized SMS notifications.
 *   `source` (String): Entry origin (`NOTIFICATION`, `MANUAL`, `RECURRING`).
 *   `smsSenderId` (String, Nullable): The sender ID of the notification (e.g. "AD-HDFCBK").
+*   `subCategory` (String, Nullable): Specific detail type label (e.g., "Mutual Funds", "Home Rent").
 
 ### C. RecurringSchedule Entity (`recurring_schedules` table)
 Represents scheduled payments.
@@ -74,6 +86,24 @@ Represents scheduled payments.
 *   `lastTriggered` (Long): Timestamp of last execution.
 *   `nextTriggerTime` (Long): Timestamp of next scheduled execution.
 *   `isActive` (Boolean): Toggle switch status.
+*   `subCategory` (String, Nullable): Specific detail type label.
+
+### D. GroceryList Entity (`grocery_lists` table)
+Represents a user's offline shopping draft.
+*   `id` (Long, Primary Key, AutoGenerate): Unique checklist draft ID.
+*   `name` (String): The list label (e.g., "Weekly Groceries").
+*   `budgetCap` (Double, Nullable): Optional budget threshold.
+*   `createdTimestamp` (Long): Creation timestamp (epoch milliseconds).
+*   `status` (String): Status code (`DRAFT` or `COMPLETED`).
+
+### E. GroceryItem Entity (`grocery_items` table)
+Represents an item within a shopping list.
+*   `id` (Long, Primary Key, AutoGenerate): Unique item row ID.
+*   `listId` (Long, Foreign Key): Maps to `GroceryList.id` (set to `ON DELETE CASCADE`).
+*   `name` (String): Item name (e.g., "Organic Milk").
+*   `quantity` (Int): Item count.
+*   `price` (Double): Price estimate or actual checkout unit price.
+*   `isChecked` (Boolean): Checked checklist state.
 
 ---
 
