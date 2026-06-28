@@ -43,7 +43,10 @@ fun CategoriesScreen(
         "star", "restaurant", "shopping_cart", "home", "directions_car", 
         "shopping_bag", "receipt_long", "movie", "medical_services", 
         "account_balance", "celebration", "local_taxi", "card_membership",
-        "payments", "restore", "trending_up", "savings"
+        "payments", "restore", "trending_up", "savings",
+        "credit_card", "school", "build", "real_estate_agent", 
+        "subscriptions", "groups", "shield", "description", "pets", 
+        "card_giftcard", "local_offer", "laptop"
     )
 
     Scaffold(

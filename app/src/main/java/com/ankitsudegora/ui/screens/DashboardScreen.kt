@@ -1078,8 +1078,9 @@ fun TransactionListItem(
                         overflow = TextOverflow.Ellipsis
                     )
                     
+                    val subCatLabel = if (!item.transaction.subCategory.isNullOrBlank()) " (${item.transaction.subCategory})" else ""
                     Text(
-                        text = (item.category?.name ?: "Uncategorized") + 
+                        text = (item.category?.name ?: "Uncategorized") + subCatLabel + 
                                 if (!item.transaction.notes.isNullOrBlank()) " • " + item.transaction.notes else "",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,

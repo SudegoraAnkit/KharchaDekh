@@ -33,7 +33,7 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 enum class AppTab {
-    DASHBOARD, CALENDAR, ADD_MANUAL, CATEGORIES, SETTINGS
+    DASHBOARD, CALENDAR, ADD_MANUAL, CATEGORIES, SETTINGS, GROCERY
 }
 
 enum class ExportScope {
@@ -192,8 +192,8 @@ class MainActivity : ComponentActivity() {
                 transactionId = activeEnrichId!!,
                 categories = categories,
                 onGetTransaction = { id -> viewModel.getTransactionById(id) },
-                onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq ->
-                    viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type, recurringFreq)
+                onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq, subCat ->
+                    viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type, recurringFreq, subCat)
                     viewModel.setActiveEnrichId(null) // Close enriching panel
                 },
                 onNavigateBack = {
@@ -240,13 +240,13 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                         NavigationBarItem(
-                            selected = currentTab == AppTab.CATEGORIES,
-                            onClick = { currentTab = AppTab.CATEGORIES },
-                            label = { Text("Categories") },
+                            selected = currentTab == AppTab.GROCERY,
+                            onClick = { currentTab = AppTab.GROCERY },
+                            label = { Text("Grocery") },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentTab == AppTab.CATEGORIES) Icons.Filled.Category else Icons.Outlined.Category,
-                                    contentDescription = "Categories"
+                                    imageVector = if (currentTab == AppTab.GROCERY) Icons.Filled.ShoppingCart else Icons.Outlined.ShoppingCart,
+                                    contentDescription = "Grocery"
                                 )
                             }
                         )
@@ -305,8 +305,8 @@ class MainActivity : ComponentActivity() {
                         AppTab.ADD_MANUAL -> {
                             AddManualScreen(
                                 categories = categories,
-                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date, recurringFreq ->
-                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq)
+                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date, recurringFreq, subCat ->
+                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq, subCat)
                                     currentTab = AppTab.DASHBOARD // navigate back automatically
                                 },
                                 onNavigateBack = { currentTab = AppTab.DASHBOARD }
@@ -342,7 +342,26 @@ class MainActivity : ComponentActivity() {
                                 autoBackupNight = autoBackupNight,
                                 onUpdateAutoBackupNight = { enabled -> viewModel.updateAutoBackupNight(enabled) },
                                 billingCycleStartDay = billingCycleStartDay,
-                                onUpdateBillingCycleStartDay = { day -> viewModel.updateBillingCycleStartDay(day) }
+                                onUpdateBillingCycleStartDay = { day -> viewModel.updateBillingCycleStartDay(day) },
+                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES }
+                            )
+                        }
+                        AppTab.GROCERY -> {
+                            val groceryLists by viewModel.allGroceryLists.collectAsStateWithLifecycle()
+                            GroceryScreen(
+                                groceryLists = groceryLists,
+                                categories = categories,
+                                onAddList = { name, cap -> viewModel.addGroceryList(name, cap) },
+                                onDeleteList = { list -> viewModel.deleteGroceryList(list) },
+                                onDuplicateList = { list, name -> viewModel.duplicateGroceryList(list, name) },
+                                onAddItem = { listId, name, qty, price -> viewModel.addGroceryItem(listId, name, qty, price) },
+                                onUpdateItem = { item -> viewModel.updateGroceryItem(item) },
+                                onDeleteItem = { item -> viewModel.deleteGroceryItem(item) },
+                                onToggleItem = { item -> viewModel.toggleGroceryItemChecked(item) },
+                                onGetLastPrice = { name -> viewModel.getLastPriceForItem(name) ?: 0.0 },
+                                onCheckout = { list, method, categoryId, carryForward ->
+                                    viewModel.markGroceryListAsPaid(list, method, categoryId, carryForward)
+                                }
                             )
                         }
                     }

@@ -39,7 +39,7 @@ class EnrichmentScreenTest {
                     transactionId = 1,
                     categories = categories,
                     onGetTransaction = { txn },
-                    onFinalizeTransaction = { _, _, _, _, _, _, _ -> },
+                    onFinalizeTransaction = { _, _, _, _, _, _, _, _ -> },
                     onNavigateBack = {}
                 )
             }

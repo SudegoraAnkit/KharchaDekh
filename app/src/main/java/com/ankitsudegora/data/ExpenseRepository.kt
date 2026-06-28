@@ -5,7 +5,8 @@ import kotlinx.coroutines.flow.Flow
 class ExpenseRepository(
     private val transactionDao: TransactionDao,
     private val categoryDao: CategoryDao,
-    private val recurringScheduleDao: RecurringScheduleDao
+    private val recurringScheduleDao: RecurringScheduleDao,
+    private val groceryDao: GroceryDao
 ) {
     val allTransactions: Flow<List<TransactionWithCategory>> =
         transactionDao.getAllTransactionsWithCategoryFlow()
@@ -81,5 +82,41 @@ class ExpenseRepository(
 
     suspend fun deleteCategory(category: Category) {
         categoryDao.deleteCategory(category)
+    }
+
+    // --- Grocery Lists & Items CRUD ---
+    val allGroceryLists: Flow<List<GroceryListWithItems>> =
+        groceryDao.getAllGroceryListsFlow()
+
+    suspend fun getGroceryListWithItemsById(id: Long): GroceryListWithItems? {
+        return groceryDao.getGroceryListWithItemsById(id)
+    }
+
+    suspend fun insertGroceryList(groceryList: GroceryList): Long {
+        return groceryDao.insertGroceryList(groceryList)
+    }
+
+    suspend fun updateGroceryList(groceryList: GroceryList) {
+        groceryDao.updateGroceryList(groceryList)
+    }
+
+    suspend fun deleteGroceryList(groceryList: GroceryList) {
+        groceryDao.deleteGroceryList(groceryList)
+    }
+
+    suspend fun insertGroceryItem(item: GroceryItem): Long {
+        return groceryDao.insertGroceryItem(item)
+    }
+
+    suspend fun updateGroceryItem(item: GroceryItem) {
+        groceryDao.updateGroceryItem(item)
+    }
+
+    suspend fun deleteGroceryItem(item: GroceryItem) {
+        groceryDao.deleteGroceryItem(item)
+    }
+
+    suspend fun getLastPriceForItem(name: String): Double? {
+        return groceryDao.getLastPriceForItem(name)
     }
 }

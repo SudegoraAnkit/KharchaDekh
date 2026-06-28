@@ -48,7 +48,7 @@ data class ForecastAllowance(
 class ExpenseViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
-    private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao(), db.recurringScheduleDao())
+    private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao(), db.recurringScheduleDao(), db.groceryDao())
     private val prefs = application.getSharedPreferences("kharchadekh_prefs", Context.MODE_PRIVATE)
 
     private val _billingCycleStartDay = MutableStateFlow(prefs.getInt("billing_cycle_start_day", 1))
@@ -91,6 +91,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val onboardingState: StateFlow<OnboardingState> = _onboardingState.asStateFlow()
 
     val allTransactions: StateFlow<List<TransactionWithCategory>> = repository.allTransactions
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allGroceryLists: StateFlow<List<GroceryListWithItems>> = repository.allGroceryLists
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val pendingTransactions: StateFlow<List<TransactionWithCategory>> = repository.pendingTransactions
@@ -260,7 +263,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     timestamp = s.nextTriggerTime,
                     paymentMethod = s.paymentMethod,
                     isPending = true,
-                    source = "RECURRING"
+                    source = "RECURRING",
+                    subCategory = s.subCategory
                 )
                 repository.insertTransaction(transaction)
 
@@ -400,7 +404,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         categoryId: Long?,
         notes: String?,
         paymentMethod: String,
-        frequency: String
+        frequency: String,
+        subCategory: String? = null
     ) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
@@ -415,7 +420,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 frequency = frequency.uppercase(),
                 lastTriggered = now,
                 nextTriggerTime = nextTime,
-                isActive = true
+                isActive = true,
+                subCategory = subCategory
             )
             repository.insertSchedule(schedule)
             processRecurringSchedules()
@@ -443,7 +449,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         notes: String?,
         paymentMethod: String,
         timestamp: Long = System.currentTimeMillis(),
-        recurringFrequency: String? = null
+        recurringFrequency: String? = null,
+        subCategory: String? = null
     ) {
         viewModelScope.launch {
             val transaction = Transaction(
@@ -455,7 +462,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 timestamp = timestamp,
                 paymentMethod = paymentMethod,
                 isPending = false,
-                source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else "MANUAL"
+                source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else "MANUAL",
+                subCategory = subCategory
             )
             repository.insertTransaction(transaction)
 
@@ -467,7 +475,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     categoryId = categoryId,
                     notes = notes,
                     paymentMethod = paymentMethod,
-                    frequency = recurringFrequency
+                    frequency = recurringFrequency,
+                    subCategory = subCategory
                 )
             }
 
@@ -493,7 +502,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         amount: Double,
         merchant: String,
         type: String,
-        recurringFrequency: String? = null
+        recurringFrequency: String? = null,
+        subCategory: String? = null
     ) {
         viewModelScope.launch {
             val existing = repository.getTransactionById(id)
@@ -505,7 +515,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     merchant = merchant.ifBlank { existing.merchant },
                     type = type,
                     isPending = false,
-                    source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else if (existing.source == "RECURRING") "MANUAL" else existing.source
+                    source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else if (existing.source == "RECURRING") "MANUAL" else existing.source,
+                    subCategory = subCategory
                 )
                 repository.updateTransaction(updated)
 
@@ -517,8 +528,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                         categoryId = categoryId,
                         notes = notes,
                         paymentMethod = existing.paymentMethod,
-                        frequency = recurringFrequency
-                    )
+                        frequency = recurringFrequency,
+                        subCategory = subCategory
+                      )
                 }
 
                 if (type == "DEBIT") {
@@ -813,5 +825,135 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val diffMs = nextCycle.timeInMillis - todayStart.timeInMillis
         val days = (diffMs / (24L * 60 * 60 * 1000)).toInt()
         return days.coerceAtLeast(1)
+    }
+
+    // --- Grocery Lists & Items Operations ---
+
+    fun addGroceryList(name: String, budgetCap: Double? = null) {
+        viewModelScope.launch {
+            repository.insertGroceryList(GroceryList(name = name, budgetCap = budgetCap))
+        }
+    }
+
+    fun deleteGroceryList(list: GroceryList) {
+        viewModelScope.launch {
+            repository.deleteGroceryList(list)
+        }
+    }
+
+    fun duplicateGroceryList(listWithItems: GroceryListWithItems, newName: String) {
+        viewModelScope.launch {
+            val newListId = repository.insertGroceryList(
+                GroceryList(
+                    name = newName,
+                    budgetCap = listWithItems.groceryList.budgetCap,
+                    status = "DRAFT"
+                )
+            )
+            listWithItems.items.forEach { item ->
+                repository.insertGroceryItem(
+                    GroceryItem(
+                        listId = newListId,
+                        name = item.name,
+                        quantity = item.quantity,
+                        price = item.price,
+                        isChecked = false
+                    )
+                )
+            }
+        }
+    }
+
+    fun addGroceryItem(listId: Long, name: String, quantity: Int = 1, price: Double = 0.0) {
+        viewModelScope.launch {
+            repository.insertGroceryItem(
+                GroceryItem(
+                    listId = listId,
+                    name = name,
+                    quantity = quantity,
+                    price = price,
+                    isChecked = false
+                )
+            )
+        }
+    }
+
+    fun updateGroceryItem(item: GroceryItem) {
+        viewModelScope.launch {
+            repository.updateGroceryItem(item)
+        }
+    }
+
+    fun deleteGroceryItem(item: GroceryItem) {
+        viewModelScope.launch {
+            repository.deleteGroceryItem(item)
+        }
+    }
+
+    fun toggleGroceryItemChecked(item: GroceryItem) {
+        viewModelScope.launch {
+            repository.updateGroceryItem(item.copy(isChecked = !item.isChecked))
+        }
+    }
+
+    suspend fun getLastPriceForItem(name: String): Double? {
+        return repository.getLastPriceForItem(name)
+    }
+
+    fun markGroceryListAsPaid(
+        listWithItems: GroceryListWithItems,
+        paymentMethod: String,
+        categoryId: Long?,
+        carryUnboughtToNewList: Boolean
+    ) {
+        viewModelScope.launch {
+            val checkedItems = listWithItems.items.filter { it.isChecked }
+            val total = checkedItems.sumOf { it.price * it.quantity }
+
+            if (total > 0.0) {
+                val transaction = Transaction(
+                    amount = total,
+                    type = "DEBIT",
+                    merchant = listWithItems.groceryList.name.ifBlank { "Groceries" },
+                    categoryId = categoryId,
+                    notes = "Settled Grocery List: ${listWithItems.groceryList.name}",
+                    timestamp = System.currentTimeMillis(),
+                    paymentMethod = paymentMethod,
+                    source = "MANUAL"
+                )
+                repository.insertTransaction(transaction)
+                if (categoryId != null) {
+                    checkBudgetThresholds(categoryId)
+                }
+            }
+
+            // Update status to COMPLETED
+            repository.updateGroceryList(listWithItems.groceryList.copy(status = "COMPLETED"))
+
+            // Carry forward unbought items
+            if (carryUnboughtToNewList) {
+                val unboughtItems = listWithItems.items.filter { !it.isChecked }
+                if (unboughtItems.isNotEmpty()) {
+                    val newListId = repository.insertGroceryList(
+                        GroceryList(
+                            name = "${listWithItems.groceryList.name} (Carry Forward)",
+                            budgetCap = listWithItems.groceryList.budgetCap,
+                            status = "DRAFT"
+                        )
+                    )
+                    unboughtItems.forEach { item ->
+                        repository.insertGroceryItem(
+                            GroceryItem(
+                                listId = newListId,
+                                name = item.name,
+                                quantity = item.quantity,
+                                price = item.price,
+                                isChecked = false
+                            )
+                        )
+                    }
+                }
+            }
+        }
     }
 }

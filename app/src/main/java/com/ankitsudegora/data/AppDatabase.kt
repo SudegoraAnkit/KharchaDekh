@@ -42,7 +42,8 @@ data class Transaction(
     val paymentMethod: String, // "UPI", "CARD", "CASH", "NETBANKING"
     val isPending: Boolean = false, // True for notifications requiring category/merchant verification
     val source: String = "MANUAL", // "MANUAL", "SMS", "NOTIFICATION", "RECURRING"
-    val smsSenderId: String? = null // For trace tracking
+    val smsSenderId: String? = null, // For trace tracking
+    val subCategory: String? = null
 )
 
 @Entity(
@@ -68,7 +69,8 @@ data class RecurringSchedule(
     val frequency: String, // "DAILY", "WEEKLY", "MONTHLY", "YEARLY"
     val lastTriggered: Long,
     val nextTriggerTime: Long,
-    val isActive: Boolean = true
+    val isActive: Boolean = true,
+    val subCategory: String? = null
 )
 
 @Entity(tableName = "app_settings")
@@ -85,6 +87,45 @@ data class TransactionWithCategory(
         entityColumn = "id"
     )
     val category: Category?
+)
+
+@Entity(tableName = "grocery_lists")
+data class GroceryList(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val name: String,
+    val budgetCap: Double? = null,
+    val createdTimestamp: Long = System.currentTimeMillis(),
+    val status: String = "DRAFT" // "DRAFT" or "COMPLETED"
+)
+
+@Entity(
+    tableName = "grocery_items",
+    foreignKeys = [
+        ForeignKey(
+            entity = GroceryList::class,
+            parentColumns = ["id"],
+            childColumns = ["listId"],
+            onDelete = ForeignKey.CASCADE
+        )
+    ],
+    indices = [Index(value = ["listId"])]
+)
+data class GroceryItem(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val listId: Long,
+    val name: String,
+    val quantity: Int = 1,
+    val price: Double = 0.0,
+    val isChecked: Boolean = false
+)
+
+data class GroceryListWithItems(
+    @Embedded val groceryList: GroceryList,
+    @Relation(
+        parentColumn = "id",
+        entityColumn = "listId"
+    )
+    val items: List<GroceryItem>
 )
 
 @Dao
@@ -177,12 +218,45 @@ interface RecurringScheduleDao {
     suspend fun deleteSchedule(schedule: RecurringSchedule)
 }
 
-@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class], version = 5, exportSchema = false)
+@Dao
+interface GroceryDao {
+    @RoomTransactionAnnot
+    @Query("SELECT * FROM grocery_lists ORDER BY createdTimestamp DESC")
+    fun getAllGroceryListsFlow(): Flow<List<GroceryListWithItems>>
+
+    @RoomTransactionAnnot
+    @Query("SELECT * FROM grocery_lists WHERE id = :id")
+    suspend fun getGroceryListWithItemsById(id: Long): GroceryListWithItems?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGroceryList(groceryList: GroceryList): Long
+
+    @Update
+    suspend fun updateGroceryList(groceryList: GroceryList)
+
+    @Delete
+    suspend fun deleteGroceryList(groceryList: GroceryList)
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertGroceryItem(item: GroceryItem): Long
+
+    @Update
+    suspend fun updateGroceryItem(item: GroceryItem)
+
+    @Delete
+    suspend fun deleteGroceryItem(item: GroceryItem)
+
+    @Query("SELECT price FROM grocery_items WHERE LOWER(name) = LOWER(:name) AND price > 0 ORDER BY id DESC LIMIT 1")
+    suspend fun getLastPriceForItem(name: String): Double?
+}
+
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, GroceryList::class, GroceryItem::class], version = 6, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
     abstract fun recurringScheduleDao(): RecurringScheduleDao
     abstract fun appSettingDao(): AppSettingDao
+    abstract fun groceryDao(): GroceryDao
 
     companion object {
         @Volatile
@@ -218,6 +292,34 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_5_6 = object : Migration(5, 6) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Add subCategory column to transactions and recurring_schedules
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `subCategory` TEXT")
+                db.execSQL("ALTER TABLE `recurring_schedules` ADD COLUMN `subCategory` TEXT")
+
+                // 2. Insert new default categories
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('SIP/Invest', 'trending_up', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('CreditCard Payment', 'credit_card', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Courses', 'school', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Home Maintenance', 'build', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Rent', 'real_estate_agent', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Subscriptions', 'subscriptions', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Domestic Help', 'groups', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Insurance', 'shield', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Taxes', 'description', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Pets', 'pets', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Gifts & Charity', 'card_giftcard', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Cashback & Rewards', 'local_offer', 0, NULL)")
+                db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES ('Freelance/Side Hustle', 'laptop', 0, NULL)")
+
+                // 3. Create grocery_lists and grocery_items tables
+                db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_lists` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `name` TEXT NOT NULL, `budgetCap` REAL, `createdTimestamp` INTEGER NOT NULL, `status` TEXT NOT NULL)")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `grocery_items` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `listId` INTEGER NOT NULL, `name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `price` REAL NOT NULL, `isChecked` INTEGER NOT NULL, FOREIGN KEY(`listId`) REFERENCES `grocery_lists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_grocery_items_listId` ON `grocery_items` (`listId`)")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -225,7 +327,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
                 .fallbackToDestructiveMigration(true)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
@@ -245,7 +347,20 @@ abstract class AppDatabase : RoomDatabase() {
                             "('Salary', 'payments', 0, NULL)",
                             "('Refund', 'restore', 0, NULL)",
                             "('Interest', 'trending_up', 0, NULL)",
-                            "('Other Inflow', 'savings', 0, NULL)"
+                            "('Other Inflow', 'savings', 0, NULL)",
+                            "('SIP/Invest', 'trending_up', 0, NULL)",
+                            "('CreditCard Payment', 'credit_card', 0, NULL)",
+                            "('Courses', 'school', 0, NULL)",
+                            "('Home Maintenance', 'build', 0, NULL)",
+                            "('Rent', 'real_estate_agent', 0, NULL)",
+                            "('Subscriptions', 'subscriptions', 0, NULL)",
+                            "('Domestic Help', 'groups', 0, NULL)",
+                            "('Insurance', 'shield', 0, NULL)",
+                            "('Taxes', 'description', 0, NULL)",
+                            "('Pets', 'pets', 0, NULL)",
+                            "('Gifts & Charity', 'card_giftcard', 0, NULL)",
+                            "('Cashback & Rewards', 'local_offer', 0, NULL)",
+                            "('Freelance/Side Hustle', 'laptop', 0, NULL)"
                         )
                         defaults.forEach { values ->
                             db.execSQL("INSERT OR IGNORE INTO categories (name, iconResName, isCustom, budgetLimit) VALUES $values")
