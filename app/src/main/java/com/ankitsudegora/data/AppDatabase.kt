@@ -43,7 +43,8 @@ data class Transaction(
     val isPending: Boolean = false, // True for notifications requiring category/merchant verification
     val source: String = "MANUAL", // "MANUAL", "SMS", "NOTIFICATION", "RECURRING"
     val smsSenderId: String? = null, // For trace tracking
-    val subCategory: String? = null
+    val subCategory: String? = null,
+    val refNumber: String? = null
 )
 
 @Entity(
@@ -190,6 +191,12 @@ interface TransactionDao {
     @Query("SELECT COUNT(*) FROM transactions WHERE amount = :amount AND type = :type AND LOWER(merchant) = LOWER(:merchant) AND timestamp >= :minTimestamp")
     suspend fun getMatchingTransactionCount(amount: Double, type: String, merchant: String, minTimestamp: Long): Int
 
+    @Query("SELECT COUNT(*) FROM transactions WHERE refNumber = :refNumber")
+    suspend fun getTransactionCountByRefNumber(refNumber: String): Int
+
+    @Query("SELECT * FROM transactions WHERE amount = :amount AND type = :type AND refNumber IS NULL AND timestamp >= :since LIMIT 1")
+    suspend fun getMatchingPendingTransaction(amount: Double, type: String, since: Long): Transaction?
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertTransaction(transaction: Transaction): Long
 
@@ -250,7 +257,7 @@ interface GroceryDao {
     suspend fun getLastPriceForItem(name: String): Double?
 }
 
-@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, GroceryList::class, GroceryItem::class], version = 6, exportSchema = false)
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, GroceryList::class, GroceryItem::class], version = 7, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
@@ -320,6 +327,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_6_7 = object : Migration(6, 7) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `refNumber` TEXT")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -327,7 +340,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
                 .fallbackToDestructiveMigration(true)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
