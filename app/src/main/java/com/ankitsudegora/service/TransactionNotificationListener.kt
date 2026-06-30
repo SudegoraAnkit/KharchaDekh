@@ -14,6 +14,8 @@ import com.ankitsudegora.MainActivity
 import com.ankitsudegora.R
 import com.ankitsudegora.data.AppDatabase
 import com.ankitsudegora.data.Transaction
+import com.ankitsudegora.util.SemanticTransactionParser
+import com.ankitsudegora.util.ParsedTransaction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -32,24 +34,54 @@ class TransactionNotificationListener : NotificationListenerService() {
 
         Log.d("TxnNotification", "Received notification from ${sbn.packageName} - Title: $title, Text: $text")
 
-        // Parse banking/transaction notifications
-        val parsed = parseNotification(title, text)
+        // Parse banking/transaction notifications via hybrid Semantic parser
+        val parsed = SemanticTransactionParser.parse(title, text)
         if (parsed != null) {
-            Log.d("TxnNotification", "Successfully parsed notification: $parsed")
+            Log.d("TxnNotification", "Successfully parsed transaction: $parsed")
             CoroutineScope(Dispatchers.IO).launch {
                 val db = AppDatabase.getDatabase(applicationContext)
                 
-                val minTimestamp = System.currentTimeMillis() - 15000L
-                val duplicateCount = db.transactionDao().getMatchingTransactionCount(
-                    amount = parsed.amount,
-                    type = parsed.type,
-                    merchant = parsed.merchant,
-                    minTimestamp = minTimestamp
-                )
-                
-                if (duplicateCount > 0) {
-                    Log.w("TxnNotification", "Duplicate transaction detected via persistent DB check. Dropping alert. Amount: ${parsed.amount}, Merchant: ${parsed.merchant}")
-                    return@launch
+                // Deduplication Strategy
+                if (parsed.refNumber != null) {
+                    // Case A: Alert has a UTR ref number (e.g. SMS)
+                    val duplicateCount = db.transactionDao().getTransactionCountByRefNumber(parsed.refNumber)
+                    if (duplicateCount > 0) {
+                        Log.w("TxnNotification", "Duplicate UTR reference detected: ${parsed.refNumber}. Dropping.")
+                        return@launch
+                    }
+                    
+                    // Check if we can enrich a pending transaction of the same amount/type from the last 2 hours
+                    val twoHoursAgo = System.currentTimeMillis() - 2 * 60 * 60 * 1000L
+                    val pendingTxn = db.transactionDao().getMatchingPendingTransaction(
+                        amount = parsed.amount,
+                        type = parsed.type,
+                        since = twoHoursAgo
+                    )
+                    
+                    if (pendingTxn != null) {
+                        // Enrich existing pending transaction instead of inserting a duplicate!
+                        val updatedTxn = pendingTxn.copy(
+                            refNumber = parsed.refNumber,
+                            merchant = parsed.merchant.ifBlank { pendingTxn.merchant }
+                        )
+                        db.transactionDao().updateTransaction(updatedTxn)
+                        Log.d("TxnNotification", "Successfully enriched pending transaction ID ${pendingTxn.id} with UTR ${parsed.refNumber}")
+                        return@launch
+                    }
+                } else {
+                    // Case B: Alert does NOT have a UTR (e.g. Push Notification)
+                    // Check within a tight 1-minute window for matching amount, type, and merchant to drop duplicates
+                    val oneMinuteAgo = System.currentTimeMillis() - 60000L
+                    val duplicateCount = db.transactionDao().getMatchingTransactionCount(
+                        amount = parsed.amount,
+                        type = parsed.type,
+                        merchant = parsed.merchant,
+                        minTimestamp = oneMinuteAgo
+                    )
+                    if (duplicateCount > 0) {
+                        Log.w("TxnNotification", "Duplicate non-UTR transaction detected within 1 minute. Dropping.")
+                        return@launch
+                    }
                 }
 
                 val transaction = Transaction(
@@ -59,8 +91,9 @@ class TransactionNotificationListener : NotificationListenerService() {
                     paymentMethod = if (parsed.type == "DEBIT") "UPI" else "NETBANKING",
                     isPending = true,
                     source = "NOTIFICATION",
-                    smsSenderId = parsed.sender, // Using smsSenderId column for DB compatibility
-                    timestamp = System.currentTimeMillis()
+                    smsSenderId = parsed.sender,
+                    timestamp = System.currentTimeMillis(),
+                    refNumber = parsed.refNumber
                 )
                 val id = db.transactionDao().insertTransaction(transaction)
                 Log.d("TxnNotification", "Saved notification transaction with ID: $id")
@@ -70,49 +103,7 @@ class TransactionNotificationListener : NotificationListenerService() {
         }
     }
 
-    private fun parseNotification(title: String, text: String): ParsedNotification? {
-        val textLower = text.lowercase()
-
-        // Match banking debit/credit indicators
-        val isDebit = textLower.contains("debited") || textLower.contains("withdrawn") ||
-                textLower.contains("spent") || textLower.contains("paid") || 
-                textLower.contains("sent") || textLower.contains("txnt o")
-        val isCredit = textLower.contains("credited") || textLower.contains("received") || 
-                textLower.contains("added")
-
-        if (!isDebit && !isCredit) return null
-
-        val type = if (isDebit) "DEBIT" else "CREDIT"
-
-        // Regex for Amount matching patterns like Rs. X, Rs X, INR X, ₹ X, ₹. X, INR. X
-        val amountRegex = Regex("(?:rs\\.?|inr|₹)\\s*([0-9,]+(?:\\.[0-9]{1,2})?)", RegexOption.IGNORE_CASE)
-        val amountMatch = amountRegex.find(text) ?: return null
-        val amountStr = amountMatch.groupValues[1].replace(",", "")
-        val amount = amountStr.toDoubleOrNull() ?: return null
-
-        // Safe merchant extractor avoiding confidential/long text leakages
-        val merchantRegex = Regex("(?:at|to|from|vpa|into|thru)\\s+([a-zA-Z0-9]{3,20})", RegexOption.IGNORE_CASE)
-        val merchantMatch = merchantRegex.find(text)
-        var merchant = merchantMatch?.groupValues?.get(1)?.trim() ?: ""
-        
-        // Clean up merchant name
-        if (merchant.isBlank() || merchant.all { it.isDigit() }) {
-            merchant = title.ifBlank { "Unknown Merchant" }
-        } else {
-            merchant = merchant.replaceFirstChar { if (it.isLowerCase()) it.titlecase() else it.toString() }
-        }
-
-        val senderName = title.ifBlank { "Alert" }
-
-        return ParsedNotification(
-            amount = amount,
-            type = type,
-            merchant = merchant,
-            sender = senderName
-        )
-    }
-
-    private fun showEnrichmentNotification(context: Context, txnId: Long, parsed: ParsedNotification) {
+    private fun showEnrichmentNotification(context: Context, txnId: Long, parsed: ParsedTransaction) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "kharchadekh_notifications"
 
@@ -157,10 +148,3 @@ class TransactionNotificationListener : NotificationListenerService() {
         notificationManager.notify(txnId.toInt(), notification)
     }
 }
-
-data class ParsedNotification(
-    val amount: Double,
-    val type: String,
-    val merchant: String,
-    val sender: String
-)
