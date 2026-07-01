@@ -38,8 +38,10 @@ class EnrichmentScreenTest {
                 EnrichmentScreen(
                     transactionId = 1,
                     categories = categories,
+                    creditCards = emptyList(),
+                    allTransactions = emptyList(),
                     onGetTransaction = { txn },
-                    onFinalizeTransaction = { _, _, _, _, _, _, _, _ -> },
+                    onFinalizeTransaction = { _, _, _, _, _, _, _, _, _, _, _ -> },
                     onNavigateBack = {}
                 )
             }

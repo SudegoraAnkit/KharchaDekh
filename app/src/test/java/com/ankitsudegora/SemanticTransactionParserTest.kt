@@ -44,6 +44,20 @@ class SemanticTransactionParserTest {
     }
 
     @Test
+    fun parse_promotionalCashbackOffer_returnsNull() {
+        val texts = listOf(
+            "Get cashback of Rs 100 on your next order",
+            "Win cash coupon coupon30 for discount",
+            "Use voucher for extra Rs. 200 discount",
+            "Scratch card offer: win cash rewards up to 1000",
+            "Claim your offer promo on Amazon today"
+        )
+        for (t in texts) {
+            assertNull(SemanticTransactionParser.parse("SMS", t))
+        }
+    }
+
+    @Test
     fun parse_otpNotification_returnsNull() {
         val text = "Rs. 500 transaction otp code is 562134. Valid for 10 minutes. Do not share."
         val parsed = SemanticTransactionParser.parse("Bank Security", text)

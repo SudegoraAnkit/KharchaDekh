@@ -6,7 +6,8 @@ class ExpenseRepository(
     private val transactionDao: TransactionDao,
     private val categoryDao: CategoryDao,
     private val recurringScheduleDao: RecurringScheduleDao,
-    private val groceryDao: GroceryDao
+    private val plannedDao: PlannedDao,
+    private val creditCardDao: CreditCardDao
 ) {
     val allTransactions: Flow<List<TransactionWithCategory>> =
         transactionDao.getAllTransactionsWithCategoryFlow()
@@ -84,39 +85,48 @@ class ExpenseRepository(
         categoryDao.deleteCategory(category)
     }
 
-    // --- Grocery Lists & Items CRUD ---
-    val allGroceryLists: Flow<List<GroceryListWithItems>> =
-        groceryDao.getAllGroceryListsFlow()
-
-    suspend fun getGroceryListWithItemsById(id: Long): GroceryListWithItems? {
-        return groceryDao.getGroceryListWithItemsById(id)
+    // --- Credit Card CRUD ---
+    val allCreditCards: Flow<List<CreditCard>> = creditCardDao.getAllCardsFlow()
+    suspend fun getAllCreditCards(): List<CreditCard> = creditCardDao.getAllCards()
+    suspend fun insertCreditCard(card: CreditCard): Long = creditCardDao.insertCard(card)
+    suspend fun deleteCreditCard(card: CreditCard) = creditCardDao.deleteCard(card)
+    suspend fun updateCcRepaymentIdForTransactions(repaymentId: Long, txnIds: List<Long>) {
+        transactionDao.updateCcRepaymentIdForTransactions(repaymentId, txnIds)
     }
 
-    suspend fun insertGroceryList(groceryList: GroceryList): Long {
-        return groceryDao.insertGroceryList(groceryList)
+    // --- Planned Lists & Items CRUD ---
+    val allPlannedLists: Flow<List<PlannedListWithItems>> =
+        plannedDao.getAllPlannedListsFlow()
+
+    suspend fun getPlannedListWithItemsById(id: Long): PlannedListWithItems? {
+        return plannedDao.getPlannedListWithItemsById(id)
     }
 
-    suspend fun updateGroceryList(groceryList: GroceryList) {
-        groceryDao.updateGroceryList(groceryList)
+    suspend fun insertPlannedList(plannedList: PlannedList): Long {
+        return plannedDao.insertPlannedList(plannedList)
     }
 
-    suspend fun deleteGroceryList(groceryList: GroceryList) {
-        groceryDao.deleteGroceryList(groceryList)
+    suspend fun updatePlannedList(plannedList: PlannedList) {
+        plannedDao.updatePlannedList(plannedList)
     }
 
-    suspend fun insertGroceryItem(item: GroceryItem): Long {
-        return groceryDao.insertGroceryItem(item)
+    suspend fun deletePlannedList(plannedList: PlannedList) {
+        plannedDao.deletePlannedList(plannedList)
     }
 
-    suspend fun updateGroceryItem(item: GroceryItem) {
-        groceryDao.updateGroceryItem(item)
+    suspend fun insertPlannedItem(item: PlannedItem): Long {
+        return plannedDao.insertPlannedItem(item)
     }
 
-    suspend fun deleteGroceryItem(item: GroceryItem) {
-        groceryDao.deleteGroceryItem(item)
+    suspend fun updatePlannedItem(item: PlannedItem) {
+        plannedDao.updatePlannedItem(item)
+    }
+
+    suspend fun deletePlannedItem(item: PlannedItem) {
+        plannedDao.deletePlannedItem(item)
     }
 
     suspend fun getLastPriceForItem(name: String): Double? {
-        return groceryDao.getLastPriceForItem(name)
+        return plannedDao.getLastPriceForItem(name)
     }
 }

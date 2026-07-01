@@ -48,7 +48,7 @@ data class ForecastAllowance(
 class ExpenseViewModel(application: Application) : AndroidViewModel(application) {
 
     private val db = AppDatabase.getDatabase(application)
-    private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao(), db.recurringScheduleDao(), db.groceryDao())
+    private val repository = ExpenseRepository(db.transactionDao(), db.categoryDao(), db.recurringScheduleDao(), db.plannedDao(), db.creditCardDao())
     private val prefs = application.getSharedPreferences("kharchadekh_prefs", Context.MODE_PRIVATE)
 
     private val _billingCycleStartDay = MutableStateFlow(prefs.getInt("billing_cycle_start_day", 1))
@@ -93,7 +93,10 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val allTransactions: StateFlow<List<TransactionWithCategory>> = repository.allTransactions
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
-    val allGroceryLists: StateFlow<List<GroceryListWithItems>> = repository.allGroceryLists
+    val allCreditCards: StateFlow<List<CreditCard>> = repository.allCreditCards
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
+
+    val allPlannedLists: StateFlow<List<PlannedListWithItems>> = repository.allPlannedLists
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyList())
 
     val pendingTransactions: StateFlow<List<TransactionWithCategory>> = repository.pendingTransactions
@@ -450,7 +453,10 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         paymentMethod: String,
         timestamp: Long = System.currentTimeMillis(),
         recurringFrequency: String? = null,
-        subCategory: String? = null
+        subCategory: String? = null,
+        paidViaCcId: Long? = null,
+        repaidCcId: Long? = null,
+        selectedRepaidTxnIds: List<Long> = emptyList()
     ) {
         viewModelScope.launch {
             val transaction = Transaction(
@@ -463,9 +469,14 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 paymentMethod = paymentMethod,
                 isPending = false,
                 source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else "MANUAL",
-                subCategory = subCategory
+                subCategory = subCategory,
+                paidViaCcId = paidViaCcId
             )
-            repository.insertTransaction(transaction)
+            val repaymentTxnId = repository.insertTransaction(transaction)
+
+            if (repaidCcId != null && selectedRepaidTxnIds.isNotEmpty()) {
+                repository.updateCcRepaymentIdForTransactions(repaymentTxnId, selectedRepaidTxnIds)
+            }
 
             if (!recurringFrequency.isNullOrEmpty()) {
                 addRecurringSchedule(
@@ -503,7 +514,10 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         merchant: String,
         type: String,
         recurringFrequency: String? = null,
-        subCategory: String? = null
+        subCategory: String? = null,
+        paidViaCcId: Long? = null,
+        repaidCcId: Long? = null,
+        selectedRepaidTxnIds: List<Long> = emptyList()
     ) {
         viewModelScope.launch {
             val existing = repository.getTransactionById(id)
@@ -516,9 +530,14 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     type = type,
                     isPending = false,
                     source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else if (existing.source == "RECURRING") "MANUAL" else existing.source,
-                    subCategory = subCategory
+                    subCategory = subCategory,
+                    paidViaCcId = paidViaCcId
                 )
                 repository.updateTransaction(updated)
+
+                if (repaidCcId != null && selectedRepaidTxnIds.isNotEmpty()) {
+                    repository.updateCcRepaymentIdForTransactions(id, selectedRepaidTxnIds)
+                }
 
                 if (!recurringFrequency.isNullOrEmpty()) {
                     addRecurringSchedule(
@@ -711,10 +730,12 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             val amount = item.transaction.amount
             if (item.transaction.type == "DEBIT") {
                 totalDebit += amount
-                totalExpense += amount
+                if (item.category?.name != "CreditCard Payment") {
+                    totalExpense += amount
 
-                val cat = item.category ?: Category(name = "Uncategorized", iconResName = "category")
-                categoryMap[cat] = categoryMap.getOrDefault(cat, 0.0) + amount
+                    val cat = item.category ?: Category(name = "Uncategorized", iconResName = "category")
+                    categoryMap[cat] = categoryMap.getOrDefault(cat, 0.0) + amount
+                }
             } else {
                 totalCredit += amount
             }
@@ -819,40 +840,52 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         todayStart.timeInMillis = now
         todayStart.set(Calendar.HOUR_OF_DAY, 0)
         todayStart.set(Calendar.MINUTE, 0)
-        todayStart.set(Calendar.SECOND, 0)
-        todayStart.set(Calendar.MILLISECOND, 0)
-        
-        val diffMs = nextCycle.timeInMillis - todayStart.timeInMillis
+                val diffMs = nextCycle.timeInMillis - todayStart.timeInMillis
         val days = (diffMs / (24L * 60 * 60 * 1000)).toInt()
         return days.coerceAtLeast(1)
     }
 
-    // --- Grocery Lists & Items Operations ---
+    // --- Credit Card Operations ---
 
-    fun addGroceryList(name: String, budgetCap: Double? = null) {
+    fun addCreditCard(cardName: String) {
         viewModelScope.launch {
-            repository.insertGroceryList(GroceryList(name = name, budgetCap = budgetCap))
+            repository.insertCreditCard(CreditCard(cardName = cardName))
         }
     }
 
-    fun deleteGroceryList(list: GroceryList) {
+    fun deleteCreditCard(card: CreditCard) {
         viewModelScope.launch {
-            repository.deleteGroceryList(list)
+            repository.deleteCreditCard(card)
         }
     }
 
-    fun duplicateGroceryList(listWithItems: GroceryListWithItems, newName: String) {
+    // --- Planned Lists & Items Operations ---
+
+    fun addPlannedList(name: String, budgetCap: Double? = null, categoryId: Long? = null) {
         viewModelScope.launch {
-            val newListId = repository.insertGroceryList(
-                GroceryList(
+            repository.insertPlannedList(PlannedList(name = name, budgetCap = budgetCap, categoryId = categoryId))
+        }
+    }
+
+    fun deletePlannedList(list: PlannedList) {
+        viewModelScope.launch {
+            repository.deletePlannedList(list)
+        }
+    }
+
+    fun duplicatePlannedList(listWithItems: PlannedListWithItems, newName: String) {
+        viewModelScope.launch {
+            val newListId = repository.insertPlannedList(
+                PlannedList(
                     name = newName,
-                    budgetCap = listWithItems.groceryList.budgetCap,
-                    status = "DRAFT"
+                    budgetCap = listWithItems.plannedList.budgetCap,
+                    status = "DRAFT",
+                    categoryId = listWithItems.plannedList.categoryId
                 )
             )
             listWithItems.items.forEach { item ->
-                repository.insertGroceryItem(
-                    GroceryItem(
+                repository.insertPlannedItem(
+                    PlannedItem(
                         listId = newListId,
                         name = item.name,
                         quantity = item.quantity,
@@ -864,10 +897,10 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun addGroceryItem(listId: Long, name: String, quantity: Int = 1, price: Double = 0.0) {
+    fun addPlannedItem(listId: Long, name: String, quantity: Int = 1, price: Double = 0.0) {
         viewModelScope.launch {
-            repository.insertGroceryItem(
-                GroceryItem(
+            repository.insertPlannedItem(
+                PlannedItem(
                     listId = listId,
                     name = name,
                     quantity = quantity,
@@ -878,30 +911,26 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
-    fun updateGroceryItem(item: GroceryItem) {
+    fun updatePlannedItem(item: PlannedItem) {
         viewModelScope.launch {
-            repository.updateGroceryItem(item)
+            repository.updatePlannedItem(item)
         }
     }
 
-    fun deleteGroceryItem(item: GroceryItem) {
+    fun deletePlannedItem(item: PlannedItem) {
         viewModelScope.launch {
-            repository.deleteGroceryItem(item)
+            repository.deletePlannedItem(item)
         }
     }
 
-    fun toggleGroceryItemChecked(item: GroceryItem) {
+    fun togglePlannedItemChecked(item: PlannedItem) {
         viewModelScope.launch {
-            repository.updateGroceryItem(item.copy(isChecked = !item.isChecked))
+            repository.updatePlannedItem(item.copy(isChecked = !item.isChecked))
         }
     }
 
-    suspend fun getLastPriceForItem(name: String): Double? {
-        return repository.getLastPriceForItem(name)
-    }
-
-    fun markGroceryListAsPaid(
-        listWithItems: GroceryListWithItems,
+    fun markPlannedListAsPaid(
+        listWithItems: PlannedListWithItems,
         paymentMethod: String,
         categoryId: Long?,
         carryUnboughtToNewList: Boolean
@@ -914,12 +943,13 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 val transaction = Transaction(
                     amount = total,
                     type = "DEBIT",
-                    merchant = listWithItems.groceryList.name.ifBlank { "Groceries" },
+                    merchant = listWithItems.plannedList.name.ifBlank { "Groceries" },
                     categoryId = categoryId,
-                    notes = "Settled Grocery List: ${listWithItems.groceryList.name}",
+                    notes = "Settled Planned List: ${listWithItems.plannedList.name}",
                     timestamp = System.currentTimeMillis(),
                     paymentMethod = paymentMethod,
-                    source = "MANUAL"
+                    source = "MANUAL",
+                    linkedListId = listWithItems.plannedList.id
                 )
                 repository.insertTransaction(transaction)
                 if (categoryId != null) {
@@ -928,22 +958,23 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             }
 
             // Update status to COMPLETED
-            repository.updateGroceryList(listWithItems.groceryList.copy(status = "COMPLETED"))
+            repository.updatePlannedList(listWithItems.plannedList.copy(status = "COMPLETED"))
 
             // Carry forward unbought items
             if (carryUnboughtToNewList) {
                 val unboughtItems = listWithItems.items.filter { !it.isChecked }
                 if (unboughtItems.isNotEmpty()) {
-                    val newListId = repository.insertGroceryList(
-                        GroceryList(
-                            name = "${listWithItems.groceryList.name} (Carry Forward)",
-                            budgetCap = listWithItems.groceryList.budgetCap,
-                            status = "DRAFT"
+                    val newListId = repository.insertPlannedList(
+                        PlannedList(
+                            name = "${listWithItems.plannedList.name} (Carry Forward)",
+                            budgetCap = listWithItems.plannedList.budgetCap,
+                            status = "DRAFT",
+                            categoryId = listWithItems.plannedList.categoryId
                         )
                     )
                     unboughtItems.forEach { item ->
-                        repository.insertGroceryItem(
-                            GroceryItem(
+                        repository.insertPlannedItem(
+                            PlannedItem(
                                 listId = newListId,
                                 name = item.name,
                                 quantity = item.quantity,
@@ -953,6 +984,34 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                         )
                     }
                 }
+            }
+        }
+    }
+
+    // --- Price Estimate & Credit Card Repayment Operations ---
+
+    suspend fun getLastPriceForItem(name: String): Double? {
+        return repository.getLastPriceForItem(name)
+    }
+
+    fun repayCreditCardBill(card: CreditCard, amount: Double, selectedTxnIds: List<Long>) {
+        viewModelScope.launch {
+            val categoriesList = repository.getAllCategoriesList()
+            val ccPaymentCategory = categoriesList.find { it.name == "CreditCard Payment" }
+            val transaction = Transaction(
+                amount = amount,
+                type = "DEBIT",
+                merchant = "Repayment: ${card.cardName}",
+                categoryId = ccPaymentCategory?.id,
+                notes = "Settle Credit Card: ${card.cardName} (${selectedTxnIds.size} transactions)",
+                timestamp = System.currentTimeMillis(),
+                paymentMethod = "UPI",
+                source = "MANUAL",
+                ccRepaymentId = null
+            )
+            val repaymentId = repository.insertTransaction(transaction)
+            if (selectedTxnIds.isNotEmpty()) {
+                repository.updateCcRepaymentIdForTransactions(repaymentId, selectedTxnIds)
             }
         }
     }

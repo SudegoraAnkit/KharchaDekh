@@ -30,6 +30,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.RecurringSchedule
+import com.ankitsudegora.data.CreditCard
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.ankitsudegora.ui.components.getIconVector
 
@@ -56,7 +57,10 @@ fun SettingsScreen(
     onUpdateAutoBackupNight: (Boolean) -> Unit,
     billingCycleStartDay: Int,
     onUpdateBillingCycleStartDay: (Int) -> Unit,
-    onNavigateToCategories: () -> Unit
+    onNavigateToCategories: () -> Unit,
+    creditCards: List<CreditCard>,
+    onAddCreditCard: (String) -> Unit,
+    onDeleteCreditCard: (CreditCard) -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -540,6 +544,120 @@ fun SettingsScreen(
             }
         }
 
+        // Credit Card Management Card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CreditCard,
+                        contentDescription = "Manage Credit Cards",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Credit Card Management",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Text(
+                    text = "Add and manage your credit cards. These cards can be linked to your expense ledger and used for repayment tracking.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                var cardNameInput by remember { mutableStateOf("") }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = cardNameInput,
+                        onValueChange = { cardNameInput = it },
+                        placeholder = { Text("e.g. HDFC Regalia") },
+                        label = { Text("Credit Card Name") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = {
+                            if (cardNameInput.isNotBlank()) {
+                                onAddCreditCard(cardNameInput.trim())
+                                cardNameInput = ""
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add")
+                    }
+                }
+
+                if (creditCards.isNotEmpty()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Text(
+                        text = "Registered Cards",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        creditCards.forEach { card ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CreditCard,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = card.cardName,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onDeleteCreditCard(card) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Data Backup & Cloud Sync Card
         Card(
             shape = RoundedCornerShape(12.dp),
@@ -991,7 +1109,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.secondary
                 )
                 Text(
-                    text = "Version v1.1.0 • Secure Ledger",
+                    text = "Version v1.1.2.1 • Secure Ledger",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )

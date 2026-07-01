@@ -47,7 +47,8 @@ fun DashboardScreen(
     spendingTargetPct: Int,
     monthlyCategorySpends: Map<Long, Double>,
     forecastAllowance: com.ankitsudegora.viewmodel.ForecastAllowance,
-    onSearchClicked: () -> Unit
+    onSearchClicked: () -> Unit,
+    billingCycleStartDay: Int
 ) {
     val initials = remember(userName) {
         userName.split(" ")
@@ -55,6 +56,37 @@ fun DashboardScreen(
             .take(2)
             .joinToString("") { it.first().uppercase() }
             .ifEmpty { "U" }
+    }
+
+    val currentBillingCycleStart = remember(billingCycleStartDay) {
+        val calendar = java.util.Calendar.getInstance()
+        val currentDay = calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        if (currentDay >= billingCycleStartDay) {
+            val maxDays = calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+            calendar.set(java.util.Calendar.DAY_OF_MONTH, billingCycleStartDay.coerceAtMost(maxDays))
+        } else {
+            calendar.add(java.util.Calendar.MONTH, -1)
+            val maxDays = calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+            calendar.set(java.util.Calendar.DAY_OF_MONTH, billingCycleStartDay.coerceAtMost(maxDays))
+        }
+        calendar.timeInMillis
+    }
+
+    var isCurrentCycleExpanded by remember { mutableStateOf(true) }
+    var isPreviousCycleExpanded by remember { mutableStateOf(false) }
+
+    val nonPendingTxns = remember(allTransactions) {
+        allTransactions.filter { !it.transaction.isPending }
+    }
+    val currentCycleTxns = remember(nonPendingTxns, currentBillingCycleStart) {
+        nonPendingTxns.filter { it.transaction.timestamp >= currentBillingCycleStart }
+    }
+    val previousCycleTxns = remember(nonPendingTxns, currentBillingCycleStart) {
+        nonPendingTxns.filter { it.transaction.timestamp < currentBillingCycleStart }
     }
 
     LazyColumn(
@@ -314,7 +346,8 @@ fun DashboardScreen(
             }
         }
 
-        val nonPendingTxns = allTransactions.filter { !it.transaction.isPending }
+        // Lists nonPendingTxns, currentCycleTxns, and previousCycleTxns are computed at Composable top level
+
         if (nonPendingTxns.isEmpty()) {
             item {
                 Box(
@@ -342,12 +375,45 @@ fun DashboardScreen(
                 }
             }
         } else {
-            items(nonPendingTxns, key = { "item_${it.transaction.id}" }) { item ->
-                TransactionListItem(
-                    item = item,
-                    onEditClicked = { onEnrichTransaction(item.transaction.id) },
-                    onDeleteClicked = { onDeleteTransaction(item.transaction) }
-                )
+            if (currentCycleTxns.isNotEmpty()) {
+                item {
+                    CycleHeader(
+                        title = "Current Billing Cycle",
+                        count = currentCycleTxns.size,
+                        isExpanded = isCurrentCycleExpanded,
+                        onToggle = { isCurrentCycleExpanded = !isCurrentCycleExpanded }
+                    )
+                }
+                if (isCurrentCycleExpanded) {
+                    items(currentCycleTxns, key = { "item_curr_${it.transaction.id}" }) { item ->
+                        TransactionListItem(
+                            item = item,
+                            onEditClicked = { onEnrichTransaction(item.transaction.id) },
+                            onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                        )
+                    }
+                }
+            }
+
+            if (previousCycleTxns.isNotEmpty()) {
+                item {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    CycleHeader(
+                        title = "Previous Transactions",
+                        count = previousCycleTxns.size,
+                        isExpanded = isPreviousCycleExpanded,
+                        onToggle = { isPreviousCycleExpanded = !isPreviousCycleExpanded }
+                    )
+                }
+                if (isPreviousCycleExpanded) {
+                    items(previousCycleTxns, key = { "item_prev_${it.transaction.id}" }) { item ->
+                        TransactionListItem(
+                            item = item,
+                            onEditClicked = { onEnrichTransaction(item.transaction.id) },
+                            onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                        )
+                    }
+                }
             }
         }
 
@@ -1300,6 +1366,63 @@ fun SafeToSpendCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun CycleHeader(
+    title: String,
+    count: Int,
+    isExpanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            shape = CircleShape
+                        )
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "$count",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

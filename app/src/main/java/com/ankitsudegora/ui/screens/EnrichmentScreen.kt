@@ -1,6 +1,9 @@
 package com.ankitsudegora.ui.screens
 
 import androidx.activity.compose.BackHandler
+import java.text.SimpleDateFormat
+import java.util.Locale
+import java.util.Date
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -28,13 +31,17 @@ import androidx.compose.ui.unit.dp
 import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.Transaction
 import com.ankitsudegora.ui.components.getIconVector
+import com.ankitsudegora.data.CreditCard
+import com.ankitsudegora.data.TransactionWithCategory
 
 @Composable
 fun EnrichmentScreen(
     transactionId: Long,
     categories: List<Category>,
+    creditCards: List<CreditCard>,
+    allTransactions: List<TransactionWithCategory>,
     onGetTransaction: suspend (Long) -> Transaction?,
-    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?, subCategory: String?) -> Unit,
+    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?, subCategory: String?, paidViaCcId: Long?, repaidCcId: Long?, selectedRepaidTxnIds: List<Long>) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     BackHandler {
@@ -94,7 +101,7 @@ fun EnrichmentScreen(
         val selectedCat = categories.find { it.id == selectedCategoryId }
         when (selectedCat?.name?.lowercase()) {
             "interest" -> listOf("Savings Interest", "FD Interest", "PPF Interest", "Other Interest")
-            "rent" -> listOf("Home Rent", "Office Rent", "Vehicle Rent", "Equipment Rent")
+            "rent & maintenance" -> listOf("Home Rent", "Office Rent", "Vehicle Rent", "Equipment Rent")
             "sip/invest" -> listOf("Mutual Funds", "Stocks / Equity", "Provident Fund", "Gold / Real Estate", "Other Investment")
             "creditcard payment" -> listOf("HDFC Card", "SBI Card", "ICICI Card", "Other Credit Card")
             "courses" -> listOf("Professional Skills", "Academic", "Language / Hobby", "Certifications")
@@ -373,6 +380,260 @@ fun EnrichmentScreen(
             }
         }
 
+        // Paid via Credit Card Selector
+        var paidViaCcChecked by remember { mutableStateOf(false) }
+        var selectedCcId by remember { mutableStateOf<Long?>(null) }
+        var ccDropdownExpanded by remember { mutableStateOf(false) }
+
+        LaunchedEffect(creditCards) {
+            if (selectedCcId == null && creditCards.isNotEmpty()) {
+                selectedCcId = creditCards.first().id
+            }
+        }
+
+        // Repayment fields
+        var selectedRepaidCcId by remember { mutableStateOf<Long?>(null) }
+        var repaymentCcDropdownExpanded by remember { mutableStateOf(false) }
+        var selectedRepaidTxnIds by remember { mutableStateOf(setOf<Long>()) }
+
+        LaunchedEffect(creditCards) {
+            if (selectedRepaidCcId == null && creditCards.isNotEmpty()) {
+                selectedRepaidCcId = creditCards.first().id
+            }
+        }
+
+        val creditCardPaymentCategory = remember(categories) {
+            categories.find { it.name == "CreditCard Payment" }
+        }
+
+        val isCcRepaymentSelected = selectedCategoryId == creditCardPaymentCategory?.id && transactionType == "DEBIT"
+
+        // Unbilled transactions checklist
+        val unbilledTxnsForCc = remember(allTransactions, selectedRepaidCcId) {
+            allTransactions.filter {
+                it.transaction.paidViaCcId == selectedRepaidCcId &&
+                it.transaction.ccRepaymentId == null &&
+                it.transaction.type == "DEBIT"
+            }
+        }
+
+        // Auto check all unbilled items when card changes
+        LaunchedEffect(selectedRepaidCcId, unbilledTxnsForCc) {
+            selectedRepaidTxnIds = unbilledTxnsForCc.map { it.transaction.id }.toSet()
+        }
+
+        // UI for Paid via Credit Card (Shown for DEBIT, unless it is a CC repayment itself)
+        if (transactionType == "DEBIT" && !isCcRepaymentSelected) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.CreditCard,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                            Text("Paid via Credit Card", fontWeight = FontWeight.SemiBold)
+                        }
+                        Switch(
+                            checked = paidViaCcChecked,
+                            onCheckedChange = {
+                                paidViaCcChecked = it
+                                if (it && selectedCcId == null && creditCards.isNotEmpty()) {
+                                    selectedCcId = creditCards.first().id
+                                }
+                            }
+                        )
+                    }
+
+                    if (paidViaCcChecked) {
+                        if (creditCards.isEmpty()) {
+                            Text(
+                                "No saved credit cards. Please add one in Settings.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.error
+                            )
+                        } else {
+                            val selectedCc = creditCards.find { it.id == selectedCcId } ?: creditCards.firstOrNull()
+                            
+                            Box(modifier = Modifier.fillMaxWidth()) {
+                                OutlinedButton(
+                                    onClick = { ccDropdownExpanded = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Text(selectedCc?.cardName ?: "Select Credit Card")
+                                    Spacer(modifier = Modifier.weight(1f))
+                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                                }
+
+                                DropdownMenu(
+                                    expanded = ccDropdownExpanded,
+                                    onDismissRequest = { ccDropdownExpanded = false },
+                                    modifier = Modifier.fillMaxWidth(0.9f)
+                                ) {
+                                    creditCards.forEach { card ->
+                                        DropdownMenuItem(
+                                            text = { Text(card.cardName) },
+                                            onClick = {
+                                                selectedCcId = card.id
+                                                ccDropdownExpanded = false
+                                            }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // UI for CreditCard Payment Category selection (Repayment checklist)
+        if (isCcRepaymentSelected) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Text(
+                        text = "Credit Card Repayment Details",
+                        fontWeight = FontWeight.Bold,
+                        style = MaterialTheme.typography.titleMedium
+                    )
+
+                    Text(
+                        text = "Select the credit card you are paying off:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+
+                    if (creditCards.isEmpty()) {
+                        Text(
+                            "No saved credit cards. Please add one in Settings first.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.error
+                        )
+                    } else {
+                        val selectedRepaidCc = creditCards.find { it.id == selectedRepaidCcId } ?: creditCards.firstOrNull()
+
+                        Box(modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(
+                                onClick = { repaymentCcDropdownExpanded = true },
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(8.dp)
+                            ) {
+                                Text(selectedRepaidCc?.cardName ?: "Select Credit Card")
+                                Spacer(modifier = Modifier.weight(1f))
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+
+                            DropdownMenu(
+                                expanded = repaymentCcDropdownExpanded,
+                                onDismissRequest = { repaymentCcDropdownExpanded = false },
+                                modifier = Modifier.fillMaxWidth(0.9f)
+                            ) {
+                                creditCards.forEach { card ->
+                                    DropdownMenuItem(
+                                        text = { Text(card.cardName) },
+                                        onClick = {
+                                            selectedRepaidCcId = card.id
+                                            repaymentCcDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+
+                        if (unbilledTxnsForCc.isEmpty()) {
+                            Text(
+                                "No unbilled transactions found for this card.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                        } else {
+                            Text(
+                                text = "Select transactions to settle (will automatically update total amount):",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+
+                            // Transaction list checklist
+                            unbilledTxnsForCc.forEach { item ->
+                                val isChecked = selectedRepaidTxnIds.contains(item.transaction.id)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            if (isChecked) {
+                                                selectedRepaidTxnIds = selectedRepaidTxnIds - item.transaction.id
+                                            } else {
+                                                selectedRepaidTxnIds = selectedRepaidTxnIds + item.transaction.id
+                                            }
+                                            // Recalculate amount if user settles matching items
+                                            val newTotal = unbilledTxnsForCc.filter { selectedRepaidTxnIds.contains(it.transaction.id) }.sumOf { it.transaction.amount }
+                                            if (newTotal > 0.0) {
+                                                amountStr = newTotal.toString()
+                                            }
+                                        }
+                                        .padding(vertical = 4.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Checkbox(
+                                        checked = isChecked,
+                                        onCheckedChange = { checked ->
+                                            if (checked == true) {
+                                                selectedRepaidTxnIds = selectedRepaidTxnIds + item.transaction.id
+                                            } else {
+                                                selectedRepaidTxnIds = selectedRepaidTxnIds - item.transaction.id
+                                            }
+                                            val newTotal = unbilledTxnsForCc.filter { selectedRepaidTxnIds.contains(it.transaction.id) }.sumOf { it.transaction.amount }
+                                            if (newTotal > 0.0) {
+                                                amountStr = newTotal.toString()
+                                            }
+                                        }
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        val dateFormatted = SimpleDateFormat("dd MMM yy", Locale.getDefault()).format(Date(item.transaction.timestamp))
+                                        Text(item.transaction.merchant, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium)
+                                        Text("$dateFormatted • ${item.category?.name ?: "Uncategorized"}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    }
+                                    Text("₹${"%,.0f".format(item.transaction.amount)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium)
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(8.dp))
+
         // Optional Notes
         OutlinedTextField(
             value = notes,
@@ -470,6 +731,10 @@ fun EnrichmentScreen(
                 val amt = amountStr.toDoubleOrNull() ?: existingTransaction!!.amount
                 val catId = selectedCategoryId ?: filteredCategories.firstOrNull()?.id ?: 0L
                 val freq = if (isRecurringChecked) selectedFrequency else null
+                val ccId = if (paidViaCcChecked && transactionType == "DEBIT" && !isCcRepaymentSelected) selectedCcId else null
+                val repCcId = if (isCcRepaymentSelected) selectedRepaidCcId else null
+                val repTxnIds = if (isCcRepaymentSelected) selectedRepaidTxnIds.toList() else emptyList()
+
                 onFinalizeTransaction(
                     transactionId,
                     catId,
@@ -478,7 +743,10 @@ fun EnrichmentScreen(
                     merchant.trim().ifBlank { "Unknown Merchant" },
                     transactionType,
                     freq,
-                    subCategory
+                    subCategory,
+                    ccId,
+                    repCcId,
+                    repTxnIds
                 )
                 onNavigateBack()
             },
