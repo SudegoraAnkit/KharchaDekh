@@ -44,6 +44,7 @@ import java.util.*
 fun PlannedListsScreen(
     plannedLists: List<PlannedListWithItems>,
     categories: List<Category>,
+    pendingTransactions: List<TransactionWithCategory>,
     onAddList: (String, Double?, Long?) -> Unit,
     onDeleteList: (PlannedList) -> Unit,
     onDuplicateList: (PlannedListWithItems, String) -> Unit,
@@ -52,7 +53,9 @@ fun PlannedListsScreen(
     onDeleteItem: (PlannedItem) -> Unit,
     onToggleItem: (PlannedItem) -> Unit,
     onGetLastPrice: suspend (String) -> Double?,
-    onCheckout: (PlannedListWithItems, String, Long?, Boolean) -> Unit
+    onCheckout: (PlannedListWithItems, String, Long?, Boolean, Long?) -> Unit,
+    onUpdateSettleAmount: (Long, Double) -> Unit,
+    onGetTransactionByLinkedListId: suspend (Long) -> Transaction?
 ) {
     var activeListId by remember { mutableStateOf<Long?>(null) }
     
@@ -64,15 +67,20 @@ fun PlannedListsScreen(
         PlannedDetailScreen(
             listWithItems = activeList,
             categories = categories,
+            pendingTransactions = pendingTransactions,
             onAddItem = onAddItem,
             onUpdateItem = onUpdateItem,
             onDeleteItem = onDeleteItem,
             onToggleItem = onToggleItem,
             onGetLastPrice = onGetLastPrice,
-            onCheckout = { method, categoryId, carryForward ->
-                onCheckout(activeList, method, categoryId, carryForward)
+            onCheckout = { method, categoryId, carryForward, linkedPendingTxnId ->
+                onCheckout(activeList, method, categoryId, carryForward, linkedPendingTxnId)
                 activeListId = null
             },
+            onUpdateSettleAmount = { amount ->
+                onUpdateSettleAmount(activeList.plannedList.id, amount)
+            },
+            onGetTransactionByLinkedListId = onGetTransactionByLinkedListId,
             onNavigateBack = { activeListId = null }
         )
     } else {
@@ -100,6 +108,7 @@ fun PlannedMasterScreen(
     var showAddDialog by remember { mutableStateOf(false) }
     var listName by remember { mutableStateOf("") }
     var budgetCapStr by remember { mutableStateOf("") }
+    var isCompletedSectionExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
@@ -162,20 +171,78 @@ fun PlannedMasterScreen(
                     }
                 }
             } else {
+                val draftLists = plannedLists.filter { it.plannedList.status != "COMPLETED" }
+                val completedLists = plannedLists.filter { it.plannedList.status == "COMPLETED" }
+
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    items(plannedLists, key = { it.plannedList.id }) { item ->
-                        PlannedListCard(
-                            listWithItems = item,
-                            categories = categories,
-                            onClick = { onSelectList(item.plannedList.id) },
-                            onDelete = { onDeleteList(item.plannedList) },
-                            onClone = {
-                                onDuplicateList(item, "${item.plannedList.name} (Copy)")
+                    if (draftLists.isNotEmpty()) {
+                        items(draftLists, key = { it.plannedList.id }) { item ->
+                            PlannedListCard(
+                                listWithItems = item,
+                                categories = categories,
+                                onClick = { onSelectList(item.plannedList.id) },
+                                onDelete = { onDeleteList(item.plannedList) },
+                                onClone = {
+                                    onDuplicateList(item, "${item.plannedList.name} (Copy)")
+                                }
+                            )
+                        }
+                    }
+
+                    if (completedLists.isNotEmpty()) {
+                        item {
+                            Surface(
+                                onClick = { isCompletedSectionExpanded = !isCompletedSectionExpanded },
+                                color = Color.Transparent,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                        Text(
+                                            text = "Completed Lists (${completedLists.size})",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = if (isCompletedSectionExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = if (isCompletedSectionExpanded) "Collapse" else "Expand",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                        )
+                        }
+
+                        if (isCompletedSectionExpanded) {
+                            items(completedLists, key = { it.plannedList.id }) { item ->
+                                PlannedListCard(
+                                    listWithItems = item,
+                                    categories = categories,
+                                    onClick = { onSelectList(item.plannedList.id) },
+                                    onDelete = { onDeleteList(item.plannedList) },
+                                    onClone = {
+                                        onDuplicateList(item, "${item.plannedList.name} (Copy)")
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -469,24 +536,33 @@ fun PlannedListCard(
 fun PlannedDetailScreen(
     listWithItems: PlannedListWithItems,
     categories: List<Category>,
+    pendingTransactions: List<TransactionWithCategory>,
     onAddItem: (Long, String, Int, Double) -> Unit,
     onUpdateItem: (PlannedItem) -> Unit,
     onDeleteItem: (PlannedItem) -> Unit,
     onToggleItem: (PlannedItem) -> Unit,
     onGetLastPrice: suspend (String) -> Double?,
-    onCheckout: (String, Long?, Boolean) -> Unit,
+    onCheckout: (String, Long?, Boolean, Long?) -> Unit,
+    onUpdateSettleAmount: (Double) -> Unit,
+    onGetTransactionByLinkedListId: suspend (Long) -> Transaction?,
     onNavigateBack: () -> Unit
 ) {
     var itemName by remember { mutableStateOf("") }
     var itemQty by remember { mutableStateOf(1) }
     var itemPriceStr by remember { mutableStateOf("") }
     var showCheckoutDialog by remember { mutableStateOf(false) }
+    var showEditAmountDialog by remember { mutableStateOf(false) }
 
     // Autocomplete estimates
     var estimatedPrice by remember { mutableStateOf<Double?>(null) }
 
     val listId = listWithItems.plannedList.id
     val isCompleted = listWithItems.plannedList.status == "COMPLETED"
+
+    var linkedTransaction by remember { mutableStateOf<Transaction?>(null) }
+    LaunchedEffect(listId) {
+        linkedTransaction = onGetTransactionByLinkedListId(listId)
+    }
 
     val totalAmount = listWithItems.items.sumOf { it.price * it.quantity }
     val budgetCap = listWithItems.plannedList.budgetCap
@@ -596,6 +672,44 @@ fun PlannedDetailScreen(
                                 Icon(Icons.Default.CheckCircle, null)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Checkout", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Final Settled Total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val displayAmount = linkedTransaction?.amount ?: totalAmount
+                                Text(
+                                    text = "₹${"%,.2f".format(displayAmount)}",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { showEditAmountDialog = true },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Amount",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -793,10 +907,60 @@ fun PlannedDetailScreen(
         CheckoutSummaryDialog(
             listWithItems = listWithItems,
             categories = categories,
+            pendingTransactions = pendingTransactions,
             onDismiss = { showCheckoutDialog = false },
-            onConfirm = { method, categoryId, carryForward ->
-                onCheckout(method, categoryId, carryForward)
+            onConfirm = { method, categoryId, carryForward, linkedPendingTxnId ->
+                onCheckout(method, categoryId, carryForward, linkedPendingTxnId)
                 showCheckoutDialog = false
+            }
+        )
+    }
+
+    if (showEditAmountDialog) {
+        var editAmountStr by remember {
+            val amt = linkedTransaction?.amount ?: totalAmount
+            mutableStateOf(if (amt == 0.0) "" else amt.toString())
+        }
+        AlertDialog(
+            onDismissRequest = { showEditAmountDialog = false },
+            title = { Text("Edit Settle Amount") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Update the final cash settled for this planned list. This will modify the associated transaction in your ledger.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    OutlinedTextField(
+                        value = editAmountStr,
+                        onValueChange = { input ->
+                            if (input.isEmpty() || input.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
+                                editAmountStr = input
+                            }
+                        },
+                        label = { Text("Amount (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newAmount = editAmountStr.toDoubleOrNull() ?: 0.0
+                        onUpdateSettleAmount(newAmount)
+                        showEditAmountDialog = false
+                    },
+                    enabled = editAmountStr.isNotBlank() && (editAmountStr.toDoubleOrNull() ?: 0.0) > 0.0
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditAmountDialog = false }) {
+                    Text("Cancel")
+                }
             }
         )
     }
@@ -943,8 +1107,9 @@ fun PlannedItemRow(
 fun CheckoutSummaryDialog(
     listWithItems: PlannedListWithItems,
     categories: List<Category>,
+    pendingTransactions: List<TransactionWithCategory>,
     onDismiss: () -> Unit,
-    onConfirm: (paymentMethod: String, categoryId: Long?, carryForward: Boolean) -> Unit
+    onConfirm: (paymentMethod: String, categoryId: Long?, carryForward: Boolean, linkedPendingTxnId: Long?) -> Unit
 ) {
     val checkedItems = listWithItems.items.filter { it.isChecked }
     val unboughtCount = listWithItems.items.count { !it.isChecked }
@@ -954,6 +1119,9 @@ fun CheckoutSummaryDialog(
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
     var carryForward by remember { mutableStateOf(true) }
     var dropdownExpanded by remember { mutableStateOf(false) }
+
+    var selectedPendingTxnId by remember { mutableStateOf<Long?>(null) }
+    var pendingDropdownExpanded by remember { mutableStateOf(false) }
 
     val debitCategories = remember(categories) {
         val inflowNames = setOf("salary", "refund", "interest", "other inflow")
@@ -999,6 +1167,87 @@ fun CheckoutSummaryDialog(
                 )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                // Map to Pending transaction dropdown (Optional)
+                if (pendingTransactions.isNotEmpty()) {
+                    Text(
+                        text = "Link to Pending Bank Alert (Optional)",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    
+                    val selectedPendingTxn = remember(selectedPendingTxnId, pendingTransactions) {
+                        pendingTransactions.find { it.transaction.id == selectedPendingTxnId }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { pendingDropdownExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (selectedPendingTxn != null) {
+                                        "₹${selectedPendingTxn.transaction.amount} from ${selectedPendingTxn.transaction.merchant}"
+                                    } else {
+                                        "Select alert to map (no duplicate)"
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (selectedPendingTxnId != null) {
+                                        IconButton(
+                                            onClick = { selectedPendingTxnId = null },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Clear,
+                                                contentDescription = "Clear selection",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
+                                    Icon(Icons.Default.ArrowDropDown, null)
+                                }
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = pendingDropdownExpanded,
+                            onDismissRequest = { pendingDropdownExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.85f)
+                        ) {
+                            pendingTransactions.forEach { pt ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("₹${pt.transaction.amount} - ${pt.transaction.merchant} (${pt.category?.name ?: "Pending"})")
+                                    },
+                                    onClick = {
+                                        selectedPendingTxnId = pt.transaction.id
+                                        pendingDropdownExpanded = false
+                                        if (pt.transaction.categoryId != null) {
+                                            selectedCategoryId = pt.transaction.categoryId
+                                        }
+                                        val u = pt.transaction.paymentMethod
+                                        if (u == "UPI" || u == "CARD" || u == "CASH") {
+                                            paymentMethod = u
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
 
                 // Select Payment Mode Row
                 Text(
@@ -1137,7 +1386,7 @@ fun CheckoutSummaryDialog(
                         Text("Cancel")
                     }
                     Button(
-                        onClick = { onConfirm(paymentMethod, selectedCategoryId, carryForward) },
+                        onClick = { onConfirm(paymentMethod, selectedCategoryId, carryForward, selectedPendingTxnId) },
                         modifier = Modifier.weight(1.5f)
                     ) {
                         Icon(Icons.Default.Check, null)

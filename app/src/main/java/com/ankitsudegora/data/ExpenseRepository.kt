@@ -129,4 +129,8 @@ class ExpenseRepository(
     suspend fun getLastPriceForItem(name: String): Double? {
         return plannedDao.getLastPriceForItem(name)
     }
+
+    suspend fun getTransactionByLinkedListId(listId: Long): Transaction? {
+        return transactionDao.getTransactionByLinkedListId(listId)
+    }
 }

@@ -517,11 +517,26 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         subCategory: String? = null,
         paidViaCcId: Long? = null,
         repaidCcId: Long? = null,
-        selectedRepaidTxnIds: List<Long> = emptyList()
+        selectedRepaidTxnIds: List<Long> = emptyList(),
+        linkedListId: Long? = null,
+        refundedTxnId: Long? = null
     ) {
         viewModelScope.launch {
             val existing = repository.getTransactionById(id)
             if (existing != null) {
+                // If linking to a list, delete any old duplicate manual checkout transaction
+                if (linkedListId != null) {
+                    val oldManualTxn = repository.getTransactionByLinkedListId(linkedListId)
+                    if (oldManualTxn != null && oldManualTxn.id != id) {
+                        repository.deleteTransaction(oldManualTxn)
+                    }
+                    // Also mark the planned list as completed if it wasn't
+                    val plannedListWithItems = repository.getPlannedListWithItemsById(linkedListId)
+                    if (plannedListWithItems != null && plannedListWithItems.plannedList.status != "COMPLETED") {
+                        repository.updatePlannedList(plannedListWithItems.plannedList.copy(status = "COMPLETED"))
+                    }
+                }
+
                 val updated = existing.copy(
                     categoryId = categoryId,
                     notes = notes,
@@ -531,7 +546,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     isPending = false,
                     source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else if (existing.source == "RECURRING") "MANUAL" else existing.source,
                     subCategory = subCategory,
-                    paidViaCcId = paidViaCcId
+                    paidViaCcId = paidViaCcId,
+                    linkedListId = linkedListId ?: existing.linkedListId,
+                    refundedTxnId = refundedTxnId ?: existing.refundedTxnId
                 )
                 repository.updateTransaction(updated)
 
@@ -933,13 +950,30 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         listWithItems: PlannedListWithItems,
         paymentMethod: String,
         categoryId: Long?,
-        carryUnboughtToNewList: Boolean
+        carryUnboughtToNewList: Boolean,
+        linkedPendingTxnId: Long? = null
     ) {
         viewModelScope.launch {
             val checkedItems = listWithItems.items.filter { it.isChecked }
             val total = checkedItems.sumOf { it.price * it.quantity }
 
-            if (total > 0.0) {
+            if (linkedPendingTxnId != null) {
+                val pendingTxn = repository.getTransactionById(linkedPendingTxnId)
+                if (pendingTxn != null) {
+                    val updated = pendingTxn.copy(
+                        isPending = false,
+                        linkedListId = listWithItems.plannedList.id,
+                        categoryId = categoryId ?: pendingTxn.categoryId,
+                        merchant = listWithItems.plannedList.name.ifBlank { pendingTxn.merchant },
+                        notes = "Settled Planned List: ${listWithItems.plannedList.name}",
+                        paymentMethod = paymentMethod
+                    )
+                    repository.updateTransaction(updated)
+                    if (categoryId != null) {
+                        checkBudgetThresholds(categoryId)
+                    }
+                }
+            } else if (total > 0.0) {
                 val transaction = Transaction(
                     amount = total,
                     type = "DEBIT",
@@ -983,6 +1017,35 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                             )
                         )
                     }
+                }
+            }
+        }
+    }
+
+    suspend fun getTransactionByLinkedListId(listId: Long): Transaction? {
+        return repository.getTransactionByLinkedListId(listId)
+    }
+
+    fun updateTransactionAmountByLinkedListId(listId: Long, newAmount: Double) {
+        viewModelScope.launch {
+            val transaction = repository.getTransactionByLinkedListId(listId)
+            if (transaction != null) {
+                repository.updateTransaction(transaction.copy(amount = newAmount))
+            } else {
+                val listWithItems = repository.getPlannedListWithItemsById(listId)
+                if (listWithItems != null) {
+                    val newTxn = Transaction(
+                        amount = newAmount,
+                        type = "DEBIT",
+                        merchant = listWithItems.plannedList.name.ifBlank { "Groceries" },
+                        categoryId = listWithItems.plannedList.categoryId,
+                        notes = "Settled Planned List: ${listWithItems.plannedList.name}",
+                        timestamp = System.currentTimeMillis(),
+                        paymentMethod = "UPI",
+                        source = "MANUAL",
+                        linkedListId = listId
+                    )
+                    repository.insertTransaction(newTxn)
                 }
             }
         }

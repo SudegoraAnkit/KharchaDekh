@@ -157,6 +157,7 @@ class MainActivity : ComponentActivity() {
         val monthlyCategorySpends by viewModel.monthlyCategorySpends.collectAsStateWithLifecycle()
         val forecastAllowance by viewModel.forecastAllowance.collectAsStateWithLifecycle()
         val creditCards by viewModel.allCreditCards.collectAsStateWithLifecycle()
+        val plannedLists by viewModel.allPlannedLists.collectAsStateWithLifecycle()
         
         // Collect active recurring schedules Flow
         val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -196,9 +197,24 @@ class MainActivity : ComponentActivity() {
                 categories = categories,
                 creditCards = creditCards,
                 allTransactions = allTransactions,
+                allPlannedLists = plannedLists,
                 onGetTransaction = { id -> viewModel.getTransactionById(id) },
-                onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds ->
-                    viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds)
+                onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds, linkedListId, refundedTxnId ->
+                    viewModel.finalizeSmsTransaction(
+                        id = id,
+                        categoryId = catId,
+                        notes = notes,
+                        amount = amount,
+                        merchant = merchant,
+                        type = type,
+                        recurringFrequency = recurringFreq,
+                        subCategory = subCat,
+                        paidViaCcId = paidViaCcId,
+                        repaidCcId = repaidCcId,
+                        selectedRepaidTxnIds = repaidTxnIds,
+                        linkedListId = linkedListId,
+                        refundedTxnId = refundedTxnId
+                    )
                     viewModel.setActiveEnrichId(null) // Close enriching panel
                 },
                 onNavigateBack = {
@@ -219,17 +235,6 @@ class MainActivity : ComponentActivity() {
                                 Icon(
                                     imageVector = if (currentTab == AppTab.DASHBOARD) Icons.Filled.PieChart else Icons.Outlined.PieChart,
                                     contentDescription = "Dashboard"
-                                )
-                            }
-                        )
-                        NavigationBarItem(
-                            selected = currentTab == AppTab.CALENDAR,
-                            onClick = { currentTab = AppTab.CALENDAR },
-                            label = { Text("Calendar") },
-                            icon = {
-                                Icon(
-                                    imageVector = if (currentTab == AppTab.CALENDAR) Icons.Filled.CalendarMonth else Icons.Outlined.CalendarMonth,
-                                    contentDescription = "Calendar"
                                 )
                             }
                         )
@@ -266,17 +271,6 @@ class MainActivity : ComponentActivity() {
                                 )
                             }
                         )
-                        NavigationBarItem(
-                            selected = currentTab == AppTab.SETTINGS,
-                            onClick = { currentTab = AppTab.SETTINGS },
-                            label = { Text("Settings") },
-                            icon = {
-                                Icon(
-                                    imageVector = if (currentTab == AppTab.SETTINGS) Icons.Filled.Settings else Icons.Outlined.Settings,
-                                    contentDescription = "Settings"
-                                )
-                            }
-                        )
                     }
                 },
                 modifier = Modifier.fillMaxSize()
@@ -307,17 +301,15 @@ class MainActivity : ComponentActivity() {
                                 monthlyCategorySpends = monthlyCategorySpends,
                                 forecastAllowance = forecastAllowance,
                                 onSearchClicked = { showFilterScreen = true },
-                                billingCycleStartDay = billingCycleStartDay
+                                onSettingsClicked = { currentTab = AppTab.SETTINGS },
+                                billingCycleStartDay = billingCycleStartDay,
+                                onExportCsvCalendar = { txns -> performExportCsv(txns) },
+                                onExportPdfCalendar = { txns -> performExportPdf(txns) }
                             )
                         }
                         AppTab.CALENDAR -> {
-                            CalendarScreen(
-                                allTransactions = allTransactions,
-                                onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
-                                onEditTransaction = { id -> viewModel.setActiveEnrichId(id) },
-                                onExportCsv = { txns -> performExportCsv(txns) },
-                                onExportPdf = { txns -> performExportPdf(txns) }
-                            )
+                            // Redirect to DashboardFeed where Calendar is now inline
+                            currentTab = AppTab.DASHBOARD
                         }
                         AppTab.ADD_MANUAL -> {
                             AddManualScreen(
@@ -369,10 +361,10 @@ class MainActivity : ComponentActivity() {
                             )
                         }
                         AppTab.PLANNED_LISTS -> {
-                            val plannedLists by viewModel.allPlannedLists.collectAsStateWithLifecycle()
                             PlannedListsScreen(
                                 plannedLists = plannedLists,
                                 categories = categories,
+                                pendingTransactions = pendingTransactions,
                                 onAddList = { name, cap, catId -> viewModel.addPlannedList(name, cap, catId) },
                                 onDeleteList = { list -> viewModel.deletePlannedList(list) },
                                 onDuplicateList = { list, name -> viewModel.duplicatePlannedList(list, name) },
@@ -381,8 +373,14 @@ class MainActivity : ComponentActivity() {
                                 onDeleteItem = { item -> viewModel.deletePlannedItem(item) },
                                 onToggleItem = { item -> viewModel.togglePlannedItemChecked(item) },
                                 onGetLastPrice = { name -> viewModel.getLastPriceForItem(name) ?: 0.0 },
-                                onCheckout = { list, method, categoryId, carryForward ->
-                                    viewModel.markPlannedListAsPaid(list, method, categoryId, carryForward)
+                                onCheckout = { list, method, categoryId, carryForward, linkedPendingTxnId ->
+                                    viewModel.markPlannedListAsPaid(list, method, categoryId, carryForward, linkedPendingTxnId)
+                                },
+                                onUpdateSettleAmount = { listId, amount ->
+                                    viewModel.updateTransactionAmountByLinkedListId(listId, amount)
+                                },
+                                onGetTransactionByLinkedListId = { listId ->
+                                    viewModel.getTransactionByLinkedListId(listId)
                                 }
                             )
                         }

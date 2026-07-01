@@ -47,7 +47,8 @@ data class Transaction(
     val refNumber: String? = null,
     val linkedListId: Long? = null,
     val paidViaCcId: Long? = null,
-    val ccRepaymentId: Long? = null
+    val ccRepaymentId: Long? = null,
+    val refundedTxnId: Long? = null
 )
 
 @Entity(
@@ -218,6 +219,9 @@ interface TransactionDao {
 
     @Query("UPDATE transactions SET ccRepaymentId = :repaymentId WHERE id IN (:txnIds)")
     suspend fun updateCcRepaymentIdForTransactions(repaymentId: Long, txnIds: List<Long>)
+
+    @Query("SELECT * FROM transactions WHERE linkedListId = :listId LIMIT 1")
+    suspend fun getTransactionByLinkedListId(listId: Long): Transaction?
 }
 
 @Dao
@@ -285,7 +289,7 @@ interface CreditCardDao {
     suspend fun deleteCard(card: CreditCard)
 }
 
-@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, PlannedList::class, PlannedItem::class, CreditCard::class], version = 9, exportSchema = false)
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, PlannedList::class, PlannedItem::class, CreditCard::class], version = 10, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
@@ -403,6 +407,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `refundedTxnId` INTEGER")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -410,7 +420,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
                 .fallbackToDestructiveMigration(false)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {

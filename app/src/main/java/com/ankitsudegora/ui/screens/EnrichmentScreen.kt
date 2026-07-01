@@ -33,6 +33,7 @@ import com.ankitsudegora.data.Transaction
 import com.ankitsudegora.ui.components.getIconVector
 import com.ankitsudegora.data.CreditCard
 import com.ankitsudegora.data.TransactionWithCategory
+import com.ankitsudegora.data.PlannedListWithItems
 
 @Composable
 fun EnrichmentScreen(
@@ -40,8 +41,9 @@ fun EnrichmentScreen(
     categories: List<Category>,
     creditCards: List<CreditCard>,
     allTransactions: List<TransactionWithCategory>,
+    allPlannedLists: List<PlannedListWithItems>,
     onGetTransaction: suspend (Long) -> Transaction?,
-    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?, subCategory: String?, paidViaCcId: Long?, repaidCcId: Long?, selectedRepaidTxnIds: List<Long>) -> Unit,
+    onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?, subCategory: String?, paidViaCcId: Long?, repaidCcId: Long?, selectedRepaidTxnIds: List<Long>, linkedListId: Long?, refundedTxnId: Long?) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     BackHandler {
@@ -57,6 +59,11 @@ fun EnrichmentScreen(
     var transactionType by remember { mutableStateOf("DEBIT") } // DEBIT / CREDIT
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
     var subCategory by remember { mutableStateOf<String?>(null) }
+
+    var selectedRefundedTxnId by remember { mutableStateOf<Long?>(null) }
+    var selectedLinkedListId by remember { mutableStateOf<Long?>(null) }
+    var refundDropdownExpanded by remember { mutableStateOf(false) }
+    var listDropdownExpanded by remember { mutableStateOf(false) }
 
     val filteredCategories = remember(categories, transactionType) {
         val inflowNames = setOf("salary", "refund", "interest", "other inflow")
@@ -88,6 +95,8 @@ fun EnrichmentScreen(
             selectedCategoryId = txn.categoryId ?: categories.firstOrNull { it.name.lowercase() != "others" }?.id ?: categories.firstOrNull()?.id
             isRecurringChecked = txn.source == "RECURRING"
             subCategory = txn.subCategory
+            selectedRefundedTxnId = txn.refundedTxnId
+            selectedLinkedListId = txn.linkedListId
         }
     }
 
@@ -632,6 +641,183 @@ fun EnrichmentScreen(
             }
         }
 
+        val debitTransactions = remember(allTransactions) {
+            allTransactions.filter { it.transaction.type == "DEBIT" && !it.transaction.isPending }
+        }
+
+        // If CREDIT, show option to map to debit transaction (Refund mapping)
+        if (transactionType == "CREDIT") {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Restore,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text("Link to Original Debit (Refund Mapping)", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    val chosenDebitTxn = remember(selectedRefundedTxnId, debitTransactions) {
+                        debitTransactions.find { it.transaction.id == selectedRefundedTxnId }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { refundDropdownExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = if (chosenDebitTxn != null) {
+                                    "₹${chosenDebitTxn.transaction.amount} - ${chosenDebitTxn.transaction.merchant}"
+                                } else {
+                                    "Select Debit Transaction (Optional)"
+                                },
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (selectedRefundedTxnId != null) {
+                                    IconButton(
+                                        onClick = { selectedRefundedTxnId = null },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "Clear selection",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = refundDropdownExpanded,
+                            onDismissRequest = { refundDropdownExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            debitTransactions.forEach { pt ->
+                                val dateFormatted = SimpleDateFormat("dd MMM yy", Locale.getDefault()).format(Date(pt.transaction.timestamp))
+                                DropdownMenuItem(
+                                    text = { Text("₹${pt.transaction.amount} - ${pt.transaction.merchant} ($dateFormatted)") },
+                                    onClick = {
+                                        selectedRefundedTxnId = pt.transaction.id
+                                        refundDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // If DEBIT, show option to map to planned checklists
+        if (transactionType == "DEBIT" && !isCcRepaymentSelected) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+                ),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(
+                    modifier = Modifier.padding(16.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.PlaylistAddCheck,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary
+                        )
+                        Text("Link to Planned Checklist", fontWeight = FontWeight.SemiBold)
+                    }
+
+                    val chosenList = remember(selectedLinkedListId, allPlannedLists) {
+                        allPlannedLists.find { it.plannedList.id == selectedLinkedListId }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { listDropdownExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(8.dp)
+                        ) {
+                            Text(
+                                text = if (chosenList != null) {
+                                    chosenList.plannedList.name
+                                } else {
+                                    "Select Checklist to Map (Optional)"
+                                },
+                                maxLines = 1,
+                                overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (selectedLinkedListId != null) {
+                                    IconButton(
+                                        onClick = { selectedLinkedListId = null },
+                                        modifier = Modifier.size(24.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Clear,
+                                            contentDescription = "Clear selection",
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                }
+                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = listDropdownExpanded,
+                            onDismissRequest = { listDropdownExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.9f)
+                        ) {
+                            allPlannedLists.forEach { pt ->
+                                DropdownMenuItem(
+                                    text = { Text("${pt.plannedList.name} (${pt.plannedList.status})") },
+                                    onClick = {
+                                        selectedLinkedListId = pt.plannedList.id
+                                        listDropdownExpanded = false
+                                        if (pt.plannedList.categoryId != null) {
+                                            selectedCategoryId = pt.plannedList.categoryId
+                                        }
+                                        merchant = pt.plannedList.name
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         Spacer(modifier = Modifier.height(8.dp))
 
         // Optional Notes
@@ -746,7 +932,9 @@ fun EnrichmentScreen(
                     subCategory,
                     ccId,
                     repCcId,
-                    repTxnIds
+                    repTxnIds,
+                    selectedLinkedListId,
+                    selectedRefundedTxnId
                 )
                 onNavigateBack()
             },
