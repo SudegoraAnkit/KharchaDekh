@@ -54,6 +54,39 @@ object Exporter {
         }
     }
 
+    fun exportCcStatement(context: Context, cardName: String, transactions: List<TransactionWithCategory>): Uri? {
+        val csvHeader = "Purchase Date,Merchant,Amount,Category,Settlement Reference ID\n"
+        val dateFormat = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault())
+        
+        val csvContent = StringBuilder(csvHeader)
+        for (item in transactions) {
+            val t = item.transaction
+            val dateStr = dateFormat.format(Date(t.timestamp))
+            val categoryName = item.category?.name ?: "Uncategorized"
+            val merchantEscaped = t.merchant.replace("\"", "\"\"")
+            val repaymentIdStr = t.ccRepaymentId?.toString() ?: "Unbilled"
+            
+            csvContent.append("\"$dateStr\",")
+                .append("\"$merchantEscaped\",")
+                .append("${t.amount},")
+                .append("\"$categoryName\",")
+                .append("\"$repaymentIdStr\"\n")
+        }
+
+        return try {
+            val cacheDir = File(context.cacheDir, "exports")
+            if (!cacheDir.exists()) cacheDir.mkdirs()
+            val file = File(cacheDir, "KharchaDekh_${cardName.replace(" ", "_")}_Statement_${System.currentTimeMillis()}.csv")
+            FileOutputStream(file).use { out ->
+                out.write(csvContent.toString().toByteArray())
+            }
+            FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        } catch (e: Exception) {
+            e.printStackTrace()
+            null
+        }
+    }
+
     fun exportToPdf(context: Context, transactions: List<TransactionWithCategory>): Uri? {
         val pdfDocument = PdfDocument()
         val paint = Paint()

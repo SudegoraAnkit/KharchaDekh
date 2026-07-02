@@ -122,6 +122,13 @@ object SemanticTransactionParser {
             return null
         }
 
+        // Reject promotional, offer, cashback, or discount messages
+        if (cleanText.contains("offer") || cleanText.contains("cashback") || cleanText.contains("coupon") || 
+            cleanText.contains("promo") || cleanText.contains("voucher") || cleanText.contains("discount") || 
+            cleanText.contains("scratch card") || cleanText.contains("win cash")) {
+            return null
+        }
+
         // Verify it contains a transactional intent
         val isDebit = cleanText.contains("debited") || cleanText.contains("withdrawn") ||
                 cleanText.contains("spent") || cleanText.contains("paid") || 

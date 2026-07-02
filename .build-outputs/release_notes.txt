@@ -42,3 +42,11 @@ FUTURE ROADMAP:
 * Backup Security: Enhanced data safety by preventing corrupt zip generation when files are missing.
 * Calendar Export Flow: Export monthly statement files directly from the calendar monthly view.
 * Restore Validation: Fixed schema conflicts to ensure seamless database restoration from legacy files.
+
+------------------------------------------------------------------------
+4. WHAT'S NEW IN v1.1.2.3 (Max 300 chars)
+------------------------------------------------------------------------
+* Visual Analytics: Added Chart view for interactive expense trends.
+* List Checkout Mappings: Link checklist checkouts directly to pending alerts.
+* Settled Totals Editing: Adjust final checklist totals on checkout.
+* Refund Linking: Link credit refunds to debit transactions.

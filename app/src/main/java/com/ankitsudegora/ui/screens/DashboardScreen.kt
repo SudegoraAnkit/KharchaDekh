@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
+import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.filled.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -27,6 +28,9 @@ import com.ankitsudegora.data.TransactionWithCategory
 import com.ankitsudegora.ui.components.getIconVector
 import com.ankitsudegora.viewmodel.AnalyticsState
 import com.ankitsudegora.viewmodel.TimeboxFilter
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.HorizontalPager
+import kotlinx.coroutines.launch
 
 @Composable
 fun DashboardScreen(
@@ -47,7 +51,11 @@ fun DashboardScreen(
     spendingTargetPct: Int,
     monthlyCategorySpends: Map<Long, Double>,
     forecastAllowance: com.ankitsudegora.viewmodel.ForecastAllowance,
-    onSearchClicked: () -> Unit
+    onSearchClicked: () -> Unit,
+    onSettingsClicked: () -> Unit,
+    billingCycleStartDay: Int,
+    onExportCsvCalendar: (List<TransactionWithCategory>) -> Unit,
+    onExportPdfCalendar: (List<TransactionWithCategory>) -> Unit
 ) {
     val initials = remember(userName) {
         userName.split(" ")
@@ -57,313 +65,437 @@ fun DashboardScreen(
             .ifEmpty { "U" }
     }
 
-    LazyColumn(
-        modifier = Modifier
-            .fillMaxSize()
-            .testTag("dashboard_feed"),
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
+    val currentBillingCycleStart = remember(billingCycleStartDay) {
+        val calendar = java.util.Calendar.getInstance()
+        val currentDay = calendar.get(java.util.Calendar.DAY_OF_MONTH)
+        calendar.set(java.util.Calendar.HOUR_OF_DAY, 0)
+        calendar.set(java.util.Calendar.MINUTE, 0)
+        calendar.set(java.util.Calendar.SECOND, 0)
+        calendar.set(java.util.Calendar.MILLISECOND, 0)
+        if (currentDay >= billingCycleStartDay) {
+            val maxDays = calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+            calendar.set(java.util.Calendar.DAY_OF_MONTH, billingCycleStartDay.coerceAtMost(maxDays))
+        } else {
+            calendar.add(java.util.Calendar.MONTH, -1)
+            val maxDays = calendar.getActualMaximum(java.util.Calendar.DAY_OF_MONTH)
+            calendar.set(java.util.Calendar.DAY_OF_MONTH, billingCycleStartDay.coerceAtMost(maxDays))
+        }
+        calendar.timeInMillis
+    }
+
+    var isCurrentCycleExpanded by remember { mutableStateOf(true) }
+    var isPreviousCycleExpanded by remember { mutableStateOf(false) }
+
+    val nonPendingTxns = remember(allTransactions) {
+        allTransactions.filter { !it.transaction.isPending }
+    }
+    val currentCycleTxns = remember(nonPendingTxns, currentBillingCycleStart) {
+        nonPendingTxns.filter { it.transaction.timestamp >= currentBillingCycleStart }
+    }
+    val previousCycleTxns = remember(nonPendingTxns, currentBillingCycleStart) {
+        nonPendingTxns.filter { it.transaction.timestamp < currentBillingCycleStart }
+    }
+
+    val pagerState = rememberPagerState(pageCount = { 3 })
+    val coroutineScope = rememberCoroutineScope()
+
+    Column(modifier = Modifier.fillMaxSize()) {
         // App header or brief greeting
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "KHARCHADEKH",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            letterSpacing = 2.sp,
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-                        )
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Column {
+                Text(
+                    text = "KHARCHADEKH",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 2.sp,
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "Namaste, $userName",
-                        style = MaterialTheme.typography.titleLarge.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onBackground
-                        )
+                )
+                Spacer(modifier = Modifier.height(2.dp))
+                Text(
+                    text = "Namaste, $userName",
+                    style = MaterialTheme.typography.titleLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground
                     )
-                }
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                ) {
-                    if (pendingTransactions.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.errorContainer)
-                                .padding(horizontal = 8.dp, vertical = 4.dp)
-                        ) {
-                            Text(
-                                text = "NEW ALERT",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onErrorContainer
-                                )
-                            )
-                        }
-                    }
-
-                    IconButton(
-                        onClick = onSearchClicked,
-                        modifier = Modifier.testTag("dashboard_search_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Search,
-                            contentDescription = "Search & Filters",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .size(38.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = initials,
-                            color = Color.White,
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
-                        )
-                    }
-                }
+                )
             }
-        }
 
-        // Trust Nudge Banner
-        item {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
-                ),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Row(
-                    modifier = Modifier.padding(16.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Default.VerifiedUser,
-                        contentDescription = "Verified Offline",
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(24.dp)
-                    )
-                    Column {
-                        Text(
-                            text = "100% Offline & Private Ledger",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
-                            color = MaterialTheme.colorScheme.primary
-                        )
-                        Text(
-                            text = "All transactions are processed and saved strictly on your mobile device. We never sync or share your financial records with any servers.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                }
-            }
-        }
-
-        // Time-box filters row
-        item {
             Row(
-                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                TimeboxFilter.values().forEach { filter ->
-                    val isSelected = filter == selectedFilter
-                    FilterChip(
-                        selected = isSelected,
-                        onClick = { onFilterSelected(filter) },
-                        label = {
-                            Text(
-                                text = when (filter) {
-                                    TimeboxFilter.DAILY -> "Daily"
-                                    TimeboxFilter.WEEKLY -> "Weekly"
-                                    TimeboxFilter.MONTHLY -> "Monthly"
-                                    TimeboxFilter.YEARLY -> "Yearly"
-                                },
-                                style = MaterialTheme.typography.labelMedium
-                            )
-                        },
+                if (pendingTransactions.isNotEmpty()) {
+                    Box(
                         modifier = Modifier
-                            .weight(1f)
-                            .testTag("filter_${filter.name.lowercase()}"),
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.errorContainer)
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = "NEW ALERT",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onErrorContainer
+                            )
                         )
-                    )
+                    }
                 }
-            }
-        }
 
-        // Metrics Summary Card
-        item {
-            MetricsSummarySection(
-                analytics = analytics,
-                categories = categories,
-                monthlyIncome = monthlyIncome,
-                savingsTargetPct = savingsTargetPct,
-                spendingTargetPct = spendingTargetPct,
-                selectedFilter = selectedFilter,
-                monthlyCategorySpends = monthlyCategorySpends,
-                forecastAllowance = forecastAllowance
-            )
-        }
-
-        // Cash Flow Forecasting Card
-        if (monthlyIncome > 0.0) {
-            item {
-                SafeToSpendCard(forecastAllowance)
-            }
-        }
-
-        // Breakdown Chart
-        if (analytics.categoryBreakdown.isNotEmpty()) {
-            item {
-                CategoryBreakdownSection(analytics)
-            }
-        }
-
-        // Budget tracking progress indicators
-        item {
-            BudgetTrackingSection(
-                categories = categories,
-                monthlyCategorySpends = monthlyCategorySpends,
-                onNavigateToCategories = onNavigateToCategories
-            )
-        }
-
-        // Outstanding Pending Section banner / horizontal scroll list, or inline alerts
-        if (pendingTransactions.isNotEmpty()) {
-            item {
-                Text(
-                    text = "Action Required (SMS Alerts to Finalize)",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.error,
-                    modifier = Modifier.padding(top = 8.dp)
-                )
-            }
-            items(pendingTransactions, key = { "pending_${it.transaction.id}" }) { item ->
-                PendingReviewCard(
-                    item = item,
-                    onVerifyClicked = { onEnrichTransaction(item.transaction.id) },
-                    onDeleteClicked = { onDeleteTransaction(item.transaction) }
-                )
-            }
-        }
-
-        // Recent Transaction History
-        item {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(top = 12.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Text(
-                    text = "Transaction Activity",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                IconButton(
+                    onClick = onSearchClicked,
+                    modifier = Modifier.testTag("dashboard_search_btn")
                 ) {
-                    Text(
-                        text = "Share Report:",
-                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.secondary
+                    Icon(
+                        imageVector = Icons.Default.Search,
+                        contentDescription = "Search & Filters",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                    IconButton(
-                        onClick = onExportCsv,
-                        modifier = Modifier.size(36.dp).testTag("export_csv_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.GridOn,
-                            contentDescription = "Share Excel Report",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
-                    IconButton(
-                        onClick = onExportPdf,
-                        modifier = Modifier.size(36.dp).testTag("export_pdf_btn")
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.PictureAsPdf,
-                            contentDescription = "Share PDF Report",
-                            tint = MaterialTheme.colorScheme.primary
-                        )
-                    }
                 }
-            }
-        }
 
-        val nonPendingTxns = allTransactions.filter { !it.transaction.isPending }
-        if (nonPendingTxns.isEmpty()) {
-            item {
+                IconButton(
+                    onClick = onSettingsClicked,
+                    modifier = Modifier.testTag("dashboard_settings_btn")
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Settings,
+                        contentDescription = "Settings",
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
                 Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.primary),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                        Icon(
-                            imageVector = Icons.Default.Receipt,
-                            contentDescription = "No transactions",
-                            tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
-                            modifier = Modifier.size(48.dp)
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "No finalized transactions found for this period.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.secondary,
-                            modifier = Modifier.fillMaxWidth(),
-                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
-                        )
-                    }
+                    Text(
+                        text = initials,
+                        color = Color.White,
+                        style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold)
+                    )
                 }
-            }
-        } else {
-            items(nonPendingTxns, key = { "item_${it.transaction.id}" }) { item ->
-                TransactionListItem(
-                    item = item,
-                    onEditClicked = { onEnrichTransaction(item.transaction.id) },
-                    onDeleteClicked = { onDeleteTransaction(item.transaction) }
-                )
             }
         }
 
-        // Made with love branding footer
-        item {
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 24.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = "Made with 💝 by Ankit Sudegora",
-                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
-                )
+        TabRow(
+            selectedTabIndex = pagerState.currentPage,
+            containerColor = Color.Transparent,
+            contentColor = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp)
+        ) {
+            Tab(
+                selected = pagerState.currentPage == 0,
+                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(0) } },
+                text = { Text("Feed", fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = pagerState.currentPage == 1,
+                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(1) } },
+                text = { Text("Stats", fontWeight = FontWeight.Bold) }
+            )
+            Tab(
+                selected = pagerState.currentPage == 2,
+                onClick = { coroutineScope.launch { pagerState.animateScrollToPage(2) } },
+                text = { Text("Calendar", fontWeight = FontWeight.Bold) }
+            )
+        }
+
+        HorizontalPager(
+            state = pagerState,
+            modifier = Modifier.weight(1f)
+        ) { page ->
+            when (page) {
+                0 -> {
+                    LazyColumn(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .testTag("dashboard_feed"),
+                        contentPadding = PaddingValues(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                    ) {
+                        // Trust Nudge Banner
+                        item {
+                            Card(
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                                ),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.VerifiedUser,
+                                        contentDescription = "Verified Offline",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Column {
+                                        Text(
+                                            text = "100% Offline & Private Ledger",
+                                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = "All transactions are processed and saved strictly on your mobile device. We never sync or share your financial records with any servers.",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Time-box filters row
+                        item {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                TimeboxFilter.values().forEach { filter ->
+                                    val isSelected = filter == selectedFilter
+                                    FilterChip(
+                                        selected = isSelected,
+                                        onClick = { onFilterSelected(filter) },
+                                        label = {
+                                            Text(
+                                                text = when (filter) {
+                                                    TimeboxFilter.DAILY -> "Daily"
+                                                    TimeboxFilter.WEEKLY -> "Weekly"
+                                                    TimeboxFilter.MONTHLY -> "Monthly"
+                                                    TimeboxFilter.YEARLY -> "Yearly"
+                                                },
+                                                style = MaterialTheme.typography.labelMedium
+                                            )
+                                        },
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .testTag("filter_${filter.name.lowercase()}"),
+                                        colors = FilterChipDefaults.filterChipColors(
+                                            selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                                            selectedLabelColor = MaterialTheme.colorScheme.onPrimaryContainer
+                                        )
+                                    )
+                                }
+                            }
+                        }
+
+                        // Metrics Summary Card
+                        item {
+                            MetricsSummarySection(
+                                analytics = analytics,
+                                categories = categories,
+                                monthlyIncome = monthlyIncome,
+                                savingsTargetPct = savingsTargetPct,
+                                spendingTargetPct = spendingTargetPct,
+                                selectedFilter = selectedFilter,
+                                monthlyCategorySpends = monthlyCategorySpends,
+                                forecastAllowance = forecastAllowance
+                            )
+                        }
+
+                        // Cash Flow Forecasting Card
+                        if (monthlyIncome > 0.0) {
+                            item {
+                                SafeToSpendCard(forecastAllowance)
+                            }
+                        }
+
+                        // Breakdown Chart
+                        if (analytics.categoryBreakdown.isNotEmpty()) {
+                            item {
+                                CategoryBreakdownSection(analytics)
+                            }
+                        }
+
+                        // Budget tracking progress indicators
+                        item {
+                            BudgetTrackingSection(
+                                categories = categories,
+                                monthlyCategorySpends = monthlyCategorySpends,
+                                onNavigateToCategories = onNavigateToCategories
+                            )
+                        }
+
+                        // Outstanding Pending Section banner
+                        if (pendingTransactions.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "Action Required (SMS Alerts to Finalize)",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.padding(top = 8.dp)
+                                )
+                            }
+                            items(pendingTransactions, key = { "pending_${it.transaction.id}" }) { item ->
+                                PendingReviewCard(
+                                    item = item,
+                                    onVerifyClicked = { onEnrichTransaction(item.transaction.id) },
+                                    onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                                )
+                            }
+                        }
+
+                        // Recent Transaction History
+                        item {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 12.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "Transaction Activity",
+                                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Text(
+                                        text = "Share Report:",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = MaterialTheme.colorScheme.secondary
+                                    )
+                                    IconButton(
+                                        onClick = onExportCsv,
+                                        modifier = Modifier.size(36.dp).testTag("export_csv_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.GridOn,
+                                            contentDescription = "Share Excel Report",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                    IconButton(
+                                        onClick = onExportPdf,
+                                        modifier = Modifier.size(36.dp).testTag("export_pdf_btn")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.PictureAsPdf,
+                                            contentDescription = "Share PDF Report",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        if (nonPendingTxns.isEmpty()) {
+                            item {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(24.dp),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Icon(
+                                            imageVector = Icons.Default.Receipt,
+                                            contentDescription = "No transactions",
+                                            tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
+                                            modifier = Modifier.size(48.dp)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Text(
+                                            text = "No finalized transactions found for this period.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.secondary,
+                                            modifier = Modifier.fillMaxWidth(),
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                        )
+                                    }
+                                }
+                            }
+                        } else {
+                            if (currentCycleTxns.isNotEmpty()) {
+                                item {
+                                    CycleHeader(
+                                        title = "Current Billing Cycle",
+                                        count = currentCycleTxns.size,
+                                        isExpanded = isCurrentCycleExpanded,
+                                        onToggle = { isCurrentCycleExpanded = !isCurrentCycleExpanded }
+                                    )
+                                }
+                                if (isCurrentCycleExpanded) {
+                                    items(currentCycleTxns, key = { "item_curr_${it.transaction.id}" }) { item ->
+                                        TransactionListItem(
+                                            item = item,
+                                            onEditClicked = { onEnrichTransaction(item.transaction.id) },
+                                            onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (previousCycleTxns.isNotEmpty()) {
+                                item {
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    CycleHeader(
+                                        title = "Previous Transactions",
+                                        count = previousCycleTxns.size,
+                                        isExpanded = isPreviousCycleExpanded,
+                                        onToggle = { isPreviousCycleExpanded = !isPreviousCycleExpanded }
+                                    )
+                                }
+                                if (isPreviousCycleExpanded) {
+                                    items(previousCycleTxns, key = { "item_prev_${it.transaction.id}" }) { item ->
+                                        TransactionListItem(
+                                            item = item,
+                                            onEditClicked = { onEnrichTransaction(item.transaction.id) },
+                                            onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // Made with love branding footer
+                        item {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 24.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "Made with 💝 by Ankit Sudegora",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = MaterialTheme.colorScheme.secondary.copy(alpha = 0.8f)
+                                )
+                            }
+                        }
+                    }
+                }
+                1 -> {
+                    ChartsScreen(
+                        analytics = analytics,
+                        allTransactions = allTransactions
+                    )
+                }
+                2 -> {
+                    CalendarScreen(
+                        allTransactions = allTransactions,
+                        onDeleteTransaction = { txn -> onDeleteTransaction(txn) },
+                        onEditTransaction = { id -> onEnrichTransaction(id) },
+                        onExportCsv = onExportCsvCalendar,
+                        onExportPdf = onExportPdfCalendar
+                    )
+                }
             }
         }
     }
@@ -1300,6 +1432,63 @@ fun SafeToSpendCard(
                     color = MaterialTheme.colorScheme.onSurface
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun CycleHeader(
+    title: String,
+    count: Int,
+    isExpanded: Boolean,
+    onToggle: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onToggle)
+            .padding(vertical = 4.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        ),
+        shape = RoundedCornerShape(12.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    text = title,
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Box(
+                    modifier = Modifier
+                        .background(
+                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.1f),
+                            shape = CircleShape
+                        )
+                        .padding(horizontal = 8.dp, vertical = 2.dp)
+                ) {
+                    Text(
+                        text = "$count",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            Icon(
+                imageVector = if (isExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                contentDescription = if (isExpanded) "Collapse" else "Expand",
+                tint = MaterialTheme.colorScheme.primary
+            )
         }
     }
 }

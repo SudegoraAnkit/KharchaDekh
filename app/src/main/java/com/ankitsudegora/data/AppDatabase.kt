@@ -44,7 +44,11 @@ data class Transaction(
     val source: String = "MANUAL", // "MANUAL", "SMS", "NOTIFICATION", "RECURRING"
     val smsSenderId: String? = null, // For trace tracking
     val subCategory: String? = null,
-    val refNumber: String? = null
+    val refNumber: String? = null,
+    val linkedListId: Long? = null,
+    val paidViaCcId: Long? = null,
+    val ccRepaymentId: Long? = null,
+    val refundedTxnId: Long? = null
 )
 
 @Entity(
@@ -90,20 +94,27 @@ data class TransactionWithCategory(
     val category: Category?
 )
 
-@Entity(tableName = "grocery_lists")
-data class GroceryList(
+@Entity(tableName = "credit_cards")
+data class CreditCard(
+    @PrimaryKey(autoGenerate = true) val id: Long = 0,
+    val cardName: String
+)
+
+@Entity(tableName = "planned_lists")
+data class PlannedList(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val name: String,
     val budgetCap: Double? = null,
     val createdTimestamp: Long = System.currentTimeMillis(),
-    val status: String = "DRAFT" // "DRAFT" or "COMPLETED"
+    val status: String = "DRAFT", // "DRAFT" or "COMPLETED"
+    val categoryId: Long? = null
 )
 
 @Entity(
-    tableName = "grocery_items",
+    tableName = "planned_items",
     foreignKeys = [
         ForeignKey(
-            entity = GroceryList::class,
+            entity = PlannedList::class,
             parentColumns = ["id"],
             childColumns = ["listId"],
             onDelete = ForeignKey.CASCADE
@@ -111,7 +122,7 @@ data class GroceryList(
     ],
     indices = [Index(value = ["listId"])]
 )
-data class GroceryItem(
+data class PlannedItem(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val listId: Long,
     val name: String,
@@ -120,13 +131,13 @@ data class GroceryItem(
     val isChecked: Boolean = false
 )
 
-data class GroceryListWithItems(
-    @Embedded val groceryList: GroceryList,
+data class PlannedListWithItems(
+    @Embedded val plannedList: PlannedList,
     @Relation(
         parentColumn = "id",
         entityColumn = "listId"
     )
-    val items: List<GroceryItem>
+    val items: List<PlannedItem>
 )
 
 @Dao
@@ -205,6 +216,12 @@ interface TransactionDao {
 
     @Delete
     suspend fun deleteTransaction(transaction: Transaction)
+
+    @Query("UPDATE transactions SET ccRepaymentId = :repaymentId WHERE id IN (:txnIds)")
+    suspend fun updateCcRepaymentIdForTransactions(repaymentId: Long, txnIds: List<Long>)
+
+    @Query("SELECT * FROM transactions WHERE linkedListId = :listId LIMIT 1")
+    suspend fun getTransactionByLinkedListId(listId: Long): Transaction?
 }
 
 @Dao
@@ -226,44 +243,60 @@ interface RecurringScheduleDao {
 }
 
 @Dao
-interface GroceryDao {
+interface PlannedDao {
     @RoomTransactionAnnot
-    @Query("SELECT * FROM grocery_lists ORDER BY createdTimestamp DESC")
-    fun getAllGroceryListsFlow(): Flow<List<GroceryListWithItems>>
+    @Query("SELECT * FROM planned_lists ORDER BY createdTimestamp DESC")
+    fun getAllPlannedListsFlow(): Flow<List<PlannedListWithItems>>
 
     @RoomTransactionAnnot
-    @Query("SELECT * FROM grocery_lists WHERE id = :id")
-    suspend fun getGroceryListWithItemsById(id: Long): GroceryListWithItems?
+    @Query("SELECT * FROM planned_lists WHERE id = :id")
+    suspend fun getPlannedListWithItemsById(id: Long): PlannedListWithItems?
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertGroceryList(groceryList: GroceryList): Long
+    suspend fun insertPlannedList(plannedList: PlannedList): Long
 
     @Update
-    suspend fun updateGroceryList(groceryList: GroceryList)
+    suspend fun updatePlannedList(plannedList: PlannedList)
 
     @Delete
-    suspend fun deleteGroceryList(groceryList: GroceryList)
+    suspend fun deletePlannedList(plannedList: PlannedList)
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
-    suspend fun insertGroceryItem(item: GroceryItem): Long
+    suspend fun insertPlannedItem(item: PlannedItem): Long
 
     @Update
-    suspend fun updateGroceryItem(item: GroceryItem)
+    suspend fun updatePlannedItem(item: PlannedItem)
 
     @Delete
-    suspend fun deleteGroceryItem(item: GroceryItem)
+    suspend fun deletePlannedItem(item: PlannedItem)
 
-    @Query("SELECT price FROM grocery_items WHERE LOWER(name) = LOWER(:name) AND price > 0 ORDER BY id DESC LIMIT 1")
+    @Query("SELECT price FROM planned_items WHERE LOWER(name) = LOWER(:name) AND price > 0 ORDER BY id DESC LIMIT 1")
     suspend fun getLastPriceForItem(name: String): Double?
 }
 
-@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, GroceryList::class, GroceryItem::class], version = 7, exportSchema = false)
+@Dao
+interface CreditCardDao {
+    @Query("SELECT * FROM credit_cards ORDER BY cardName ASC")
+    fun getAllCardsFlow(): Flow<List<CreditCard>>
+
+    @Query("SELECT * FROM credit_cards ORDER BY cardName ASC")
+    suspend fun getAllCards(): List<CreditCard>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertCard(card: CreditCard): Long
+
+    @Delete
+    suspend fun deleteCard(card: CreditCard)
+}
+
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, PlannedList::class, PlannedItem::class, CreditCard::class], version = 10, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
     abstract fun recurringScheduleDao(): RecurringScheduleDao
     abstract fun appSettingDao(): AppSettingDao
-    abstract fun groceryDao(): GroceryDao
+    abstract fun plannedDao(): PlannedDao
+    abstract fun creditCardDao(): CreditCardDao
 
     companion object {
         @Volatile
@@ -333,6 +366,53 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_7_8 = object : Migration(7, 8) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // 1. Create credit_cards table
+                db.execSQL("CREATE TABLE IF NOT EXISTS `credit_cards` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `cardName` TEXT NOT NULL)")
+                
+                // 2. Add columns to transactions table
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `linkedListId` INTEGER")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `paidViaCcId` INTEGER")
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `ccRepaymentId` INTEGER")
+                
+                // 3. Rename grocery_lists to planned_lists
+                db.execSQL("ALTER TABLE `grocery_lists` RENAME TO `planned_lists`")
+                
+                // 4. Recreate grocery_items as planned_items with the correct foreign key referencing planned_lists
+                db.execSQL("CREATE TABLE IF NOT EXISTS `planned_items` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `listId` INTEGER NOT NULL, `name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `price` REAL NOT NULL, `isChecked` INTEGER NOT NULL, FOREIGN KEY(`listId`) REFERENCES `planned_lists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )")
+                db.execSQL("INSERT INTO `planned_items` (`id`, `listId`, `name`, `quantity`, `price`, `isChecked`) SELECT `id`, `listId`, `name`, `quantity`, `price`, `isChecked` FROM `grocery_items`")
+                db.execSQL("DROP TABLE `grocery_items`")
+                
+                // 5. Create index with correct Room schema name
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_planned_items_listId` ON `planned_items` (`listId`)")
+                
+                // 6. Add categoryId column to planned_lists
+                db.execSQL("ALTER TABLE `planned_lists` ADD COLUMN `categoryId` INTEGER")
+
+                // 7. Merge duplicate Rent categories to Rent & Maintenance
+                db.execSQL("UPDATE transactions SET categoryId = (SELECT id FROM categories WHERE name = 'Rent & Maintenance' LIMIT 1) WHERE categoryId = (SELECT id FROM categories WHERE name = 'Rent' LIMIT 1)")
+                db.execSQL("DELETE FROM categories WHERE name = 'Rent'")
+            }
+        }
+
+        val MIGRATION_8_9 = object : Migration(8, 9) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                // Recreate planned_items to point to planned_lists (correcting the foreign key constraint from MIGRATION_7_8)
+                db.execSQL("CREATE TABLE IF NOT EXISTS `planned_items_new` (`id` INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL, `listId` INTEGER NOT NULL, `name` TEXT NOT NULL, `quantity` INTEGER NOT NULL, `price` REAL NOT NULL, `isChecked` INTEGER NOT NULL, FOREIGN KEY(`listId`) REFERENCES `planned_lists`(`id`) ON UPDATE NO ACTION ON DELETE CASCADE )")
+                db.execSQL("INSERT INTO `planned_items_new` (`id`, `listId`, `name`, `quantity`, `price`, `isChecked`) SELECT `id`, `listId`, `name`, `quantity`, `price`, `isChecked` FROM `planned_items`")
+                db.execSQL("DROP TABLE `planned_items`")
+                db.execSQL("ALTER TABLE `planned_items_new` RENAME TO `planned_items`")
+                db.execSQL("CREATE INDEX IF NOT EXISTS `index_planned_items_listId` ON `planned_items` (`listId`)")
+            }
+        }
+
+        val MIGRATION_9_10 = object : Migration(9, 10) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `refundedTxnId` INTEGER")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -340,8 +420,8 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7)
-                .fallbackToDestructiveMigration(true)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .fallbackToDestructiveMigration(false)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {
                         super.onCreate(db)
@@ -365,7 +445,6 @@ abstract class AppDatabase : RoomDatabase() {
                             "('CreditCard Payment', 'credit_card', 0, NULL)",
                             "('Courses', 'school', 0, NULL)",
                             "('Home Maintenance', 'build', 0, NULL)",
-                            "('Rent', 'real_estate_agent', 0, NULL)",
                             "('Subscriptions', 'subscriptions', 0, NULL)",
                             "('Domestic Help', 'groups', 0, NULL)",
                             "('Insurance', 'shield', 0, NULL)",

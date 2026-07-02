@@ -10,6 +10,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
+import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -33,7 +35,7 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 enum class AppTab {
-    DASHBOARD, CALENDAR, ADD_MANUAL, CATEGORIES, SETTINGS, GROCERY
+    DASHBOARD, CALENDAR, ADD_MANUAL, CATEGORIES, SETTINGS, PLANNED_LISTS, CREDIT_CARD
 }
 
 enum class ExportScope {
@@ -154,6 +156,8 @@ class MainActivity : ComponentActivity() {
         val billingCycleStartDay by viewModel.billingCycleStartDay.collectAsStateWithLifecycle()
         val monthlyCategorySpends by viewModel.monthlyCategorySpends.collectAsStateWithLifecycle()
         val forecastAllowance by viewModel.forecastAllowance.collectAsStateWithLifecycle()
+        val creditCards by viewModel.allCreditCards.collectAsStateWithLifecycle()
+        val plannedLists by viewModel.allPlannedLists.collectAsStateWithLifecycle()
         
         // Collect active recurring schedules Flow
         val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -191,9 +195,26 @@ class MainActivity : ComponentActivity() {
             EnrichmentScreen(
                 transactionId = activeEnrichId!!,
                 categories = categories,
+                creditCards = creditCards,
+                allTransactions = allTransactions,
+                allPlannedLists = plannedLists,
                 onGetTransaction = { id -> viewModel.getTransactionById(id) },
-                onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq, subCat ->
-                    viewModel.finalizeSmsTransaction(id, catId, notes, amount, merchant, type, recurringFreq, subCat)
+                onFinalizeTransaction = { id, catId, notes, amount, merchant, type, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds, linkedListId, refundedTxnId ->
+                    viewModel.finalizeSmsTransaction(
+                        id = id,
+                        categoryId = catId,
+                        notes = notes,
+                        amount = amount,
+                        merchant = merchant,
+                        type = type,
+                        recurringFrequency = recurringFreq,
+                        subCategory = subCat,
+                        paidViaCcId = paidViaCcId,
+                        repaidCcId = repaidCcId,
+                        selectedRepaidTxnIds = repaidTxnIds,
+                        linkedListId = linkedListId,
+                        refundedTxnId = refundedTxnId
+                    )
                     viewModel.setActiveEnrichId(null) // Close enriching panel
                 },
                 onNavigateBack = {
@@ -218,17 +239,6 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                         NavigationBarItem(
-                            selected = currentTab == AppTab.CALENDAR,
-                            onClick = { currentTab = AppTab.CALENDAR },
-                            label = { Text("Calendar") },
-                            icon = {
-                                Icon(
-                                    imageVector = if (currentTab == AppTab.CALENDAR) Icons.Filled.CalendarMonth else Icons.Outlined.CalendarMonth,
-                                    contentDescription = "Calendar"
-                                )
-                            }
-                        )
-                        NavigationBarItem(
                             selected = currentTab == AppTab.ADD_MANUAL,
                             onClick = { currentTab = AppTab.ADD_MANUAL },
                             label = { Text("Log Cash") },
@@ -240,24 +250,24 @@ class MainActivity : ComponentActivity() {
                             }
                         )
                         NavigationBarItem(
-                            selected = currentTab == AppTab.GROCERY,
-                            onClick = { currentTab = AppTab.GROCERY },
-                            label = { Text("Grocery") },
+                            selected = currentTab == AppTab.PLANNED_LISTS,
+                            onClick = { currentTab = AppTab.PLANNED_LISTS },
+                            label = { Text("Lists") },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentTab == AppTab.GROCERY) Icons.Filled.ShoppingCart else Icons.Outlined.ShoppingCart,
-                                    contentDescription = "Grocery"
+                                    imageVector = if (currentTab == AppTab.PLANNED_LISTS) Icons.AutoMirrored.Filled.PlaylistAddCheck else Icons.AutoMirrored.Outlined.PlaylistAddCheck,
+                                    contentDescription = "Planned Lists"
                                 )
                             }
                         )
                         NavigationBarItem(
-                            selected = currentTab == AppTab.SETTINGS,
-                            onClick = { currentTab = AppTab.SETTINGS },
-                            label = { Text("Settings") },
+                            selected = currentTab == AppTab.CREDIT_CARD,
+                            onClick = { currentTab = AppTab.CREDIT_CARD },
+                            label = { Text("Cards") },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentTab == AppTab.SETTINGS) Icons.Filled.Settings else Icons.Outlined.Settings,
-                                    contentDescription = "Settings"
+                                    imageVector = if (currentTab == AppTab.CREDIT_CARD) Icons.Filled.CreditCard else Icons.Outlined.CreditCard,
+                                    contentDescription = "Credit Cards"
                                 )
                             }
                         )
@@ -290,23 +300,24 @@ class MainActivity : ComponentActivity() {
                                 spendingTargetPct = spendingTargetPct,
                                 monthlyCategorySpends = monthlyCategorySpends,
                                 forecastAllowance = forecastAllowance,
-                                onSearchClicked = { showFilterScreen = true }
+                                onSearchClicked = { showFilterScreen = true },
+                                onSettingsClicked = { currentTab = AppTab.SETTINGS },
+                                billingCycleStartDay = billingCycleStartDay,
+                                onExportCsvCalendar = { txns -> performExportCsv(txns) },
+                                onExportPdfCalendar = { txns -> performExportPdf(txns) }
                             )
                         }
                         AppTab.CALENDAR -> {
-                            CalendarScreen(
-                                allTransactions = allTransactions,
-                                onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
-                                onEditTransaction = { id -> viewModel.setActiveEnrichId(id) },
-                                onExportCsv = { txns -> performExportCsv(txns) },
-                                onExportPdf = { txns -> performExportPdf(txns) }
-                            )
+                            // Redirect to DashboardFeed where Calendar is now inline
+                            currentTab = AppTab.DASHBOARD
                         }
                         AppTab.ADD_MANUAL -> {
                             AddManualScreen(
                                 categories = categories,
-                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date, recurringFreq, subCat ->
-                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq, subCat)
+                                creditCards = creditCards,
+                                allTransactions = allTransactions,
+                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds ->
+                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds)
                                     currentTab = AppTab.DASHBOARD // navigate back automatically
                                 },
                                 onNavigateBack = { currentTab = AppTab.DASHBOARD }
@@ -343,24 +354,61 @@ class MainActivity : ComponentActivity() {
                                 onUpdateAutoBackupNight = { enabled -> viewModel.updateAutoBackupNight(enabled) },
                                 billingCycleStartDay = billingCycleStartDay,
                                 onUpdateBillingCycleStartDay = { day -> viewModel.updateBillingCycleStartDay(day) },
-                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES }
+                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES },
+                                creditCards = creditCards,
+                                onAddCreditCard = { name -> viewModel.addCreditCard(name) },
+                                onDeleteCreditCard = { card -> viewModel.deleteCreditCard(card) }
                             )
                         }
-                        AppTab.GROCERY -> {
-                            val groceryLists by viewModel.allGroceryLists.collectAsStateWithLifecycle()
-                            GroceryScreen(
-                                groceryLists = groceryLists,
+                        AppTab.PLANNED_LISTS -> {
+                            PlannedListsScreen(
+                                plannedLists = plannedLists,
                                 categories = categories,
-                                onAddList = { name, cap -> viewModel.addGroceryList(name, cap) },
-                                onDeleteList = { list -> viewModel.deleteGroceryList(list) },
-                                onDuplicateList = { list, name -> viewModel.duplicateGroceryList(list, name) },
-                                onAddItem = { listId, name, qty, price -> viewModel.addGroceryItem(listId, name, qty, price) },
-                                onUpdateItem = { item -> viewModel.updateGroceryItem(item) },
-                                onDeleteItem = { item -> viewModel.deleteGroceryItem(item) },
-                                onToggleItem = { item -> viewModel.toggleGroceryItemChecked(item) },
+                                pendingTransactions = pendingTransactions,
+                                onAddList = { name, cap, catId -> viewModel.addPlannedList(name, cap, catId) },
+                                onDeleteList = { list -> viewModel.deletePlannedList(list) },
+                                onDuplicateList = { list, name -> viewModel.duplicatePlannedList(list, name) },
+                                onAddItem = { listId, name, qty, price -> viewModel.addPlannedItem(listId, name, qty, price) },
+                                onUpdateItem = { item -> viewModel.updatePlannedItem(item) },
+                                onDeleteItem = { item -> viewModel.deletePlannedItem(item) },
+                                onToggleItem = { item -> viewModel.togglePlannedItemChecked(item) },
                                 onGetLastPrice = { name -> viewModel.getLastPriceForItem(name) ?: 0.0 },
-                                onCheckout = { list, method, categoryId, carryForward ->
-                                    viewModel.markGroceryListAsPaid(list, method, categoryId, carryForward)
+                                onCheckout = { list, method, categoryId, carryForward, linkedPendingTxnId ->
+                                    viewModel.markPlannedListAsPaid(list, method, categoryId, carryForward, linkedPendingTxnId)
+                                },
+                                onUpdateSettleAmount = { listId, amount ->
+                                    viewModel.updateTransactionAmountByLinkedListId(listId, amount)
+                                },
+                                onGetTransactionByLinkedListId = { listId ->
+                                    viewModel.getTransactionByLinkedListId(listId)
+                                }
+                            )
+                        }
+                        AppTab.CREDIT_CARD -> {
+                            val creditCardsVal by viewModel.allCreditCards.collectAsStateWithLifecycle()
+                            val allTxnsVal by viewModel.allTransactions.collectAsStateWithLifecycle()
+                            CreditCardScreen(
+                                creditCards = creditCardsVal,
+                                allTransactions = allTxnsVal,
+                                onRepayCard = { card, amount, txnIds ->
+                                    viewModel.repayCreditCardBill(card, amount, txnIds)
+                                },
+                                onExportStatement = { card, transactions ->
+                                    lifecycleScope.launch {
+                                        val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                                            com.ankitsudegora.util.Exporter.exportCcStatement(this@MainActivity, card.cardName, transactions)
+                                        }
+                                        if (uri != null) {
+                                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                                                type = "text/csv"
+                                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
+                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                            }
+                                            startActivity(android.content.Intent.createChooser(intent, "Share Credit Card Statement"))
+                                        } else {
+                                            Toast.makeText(this@MainActivity, "Failed to generate CSV statement.", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
                                 }
                             )
                         }

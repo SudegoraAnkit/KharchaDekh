@@ -5,6 +5,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -30,6 +34,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.RecurringSchedule
+import com.ankitsudegora.data.CreditCard
 import androidx.compose.foundation.isSystemInDarkTheme
 import com.ankitsudegora.ui.components.getIconVector
 
@@ -56,7 +61,10 @@ fun SettingsScreen(
     onUpdateAutoBackupNight: (Boolean) -> Unit,
     billingCycleStartDay: Int,
     onUpdateBillingCycleStartDay: (Int) -> Unit,
-    onNavigateToCategories: () -> Unit
+    onNavigateToCategories: () -> Unit,
+    creditCards: List<CreditCard>,
+    onAddCreditCard: (String) -> Unit,
+    onDeleteCreditCard: (CreditCard) -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -540,6 +548,120 @@ fun SettingsScreen(
             }
         }
 
+        // Credit Card Management Card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.CreditCard,
+                        contentDescription = "Manage Credit Cards",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Credit Card Management",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Text(
+                    text = "Add and manage your credit cards. These cards can be linked to your expense ledger and used for repayment tracking.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                var cardNameInput by remember { mutableStateOf("") }
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedTextField(
+                        value = cardNameInput,
+                        onValueChange = { cardNameInput = it },
+                        placeholder = { Text("e.g. HDFC Regalia") },
+                        label = { Text("Credit Card Name") },
+                        modifier = Modifier.weight(1f),
+                        singleLine = true
+                    )
+                    Button(
+                        onClick = {
+                            if (cardNameInput.isNotBlank()) {
+                                onAddCreditCard(cardNameInput.trim())
+                                cardNameInput = ""
+                            }
+                        },
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Icon(Icons.Default.Add, contentDescription = "Add")
+                    }
+                }
+
+                if (creditCards.isNotEmpty()) {
+                    HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp))
+                    Text(
+                        text = "Registered Cards",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        creditCards.forEach { card ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CreditCard,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.secondary,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Text(
+                                        text = card.cardName,
+                                        style = MaterialTheme.typography.bodyMedium
+                                    )
+                                }
+                                IconButton(
+                                    onClick = { onDeleteCreditCard(card) },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "Delete",
+                                        tint = MaterialTheme.colorScheme.error,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         // Data Backup & Cloud Sync Card
         Card(
             shape = RoundedCornerShape(12.dp),
@@ -891,6 +1013,164 @@ fun SettingsScreen(
             }
         }
 
+        // Feature Guide card
+        var showFeatureGuide by remember { mutableStateOf(false) }
+
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable { showFeatureGuide = !showFeatureGuide }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.AutoMirrored.Filled.MenuBook,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        Column {
+                            Text(
+                                text = "Feature Guide",
+                                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                            Text(
+                                text = "Quick walkthroughs for every feature",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                    Icon(
+                        imageVector = if (showFeatureGuide) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                        contentDescription = if (showFeatureGuide) "Collapse" else "Expand",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                AnimatedVisibility(
+                    visible = showFeatureGuide,
+                    enter = expandVertically(),
+                    exit = shrinkVertically()
+                ) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(vertical = 4.dp)
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.Default.Notifications,
+                            title = "SMS Auto-Capture",
+                            purpose = "Automatically reads bank SMS alerts to log transactions on-device.",
+                            steps = listOf(
+                                "Go to Settings → Enable Notification Access",
+                                "Grant notification permission for KharchaDekh",
+                                "Bank alerts will auto-appear as pending transactions in Feed"
+                            )
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.AutoMirrored.Filled.TrendingUp,
+                            title = "Feed, Stats & Calendar",
+                            purpose = "View live transaction feed, interactive expense charts, and a monthly calendar view — all in one swipeable tab.",
+                            steps = listOf(
+                                "Tap Feed at bottom → Swipe between Feed, Stats, Calendar tabs",
+                                "Stats shows a doughnut chart and 6-month trend bars",
+                                "Calendar lets you browse and export daily statements"
+                            )
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.Default.Edit,
+                            title = "Enrich & Categorize",
+                            purpose = "Finalize pending SMS transactions by assigning category, merchant, and amount.",
+                            steps = listOf(
+                                "Tap a pending transaction card in Feed",
+                                "Select category, enter merchant name, adjust amount",
+                                "Optionally link to a planned checklist or refund",
+                                "Tap Confirm to save to your ledger"
+                            )
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.Default.Checklist,
+                            title = "Planned Checklists",
+                            purpose = "Plan grocery or shopping lists with budgets. Checkout maps to bank alerts to avoid double entries.",
+                            steps = listOf(
+                                "Tap Lists tab → Add a new checklist with a budget cap",
+                                "Add items with name, quantity, and price",
+                                "Check off items as you shop",
+                                "Tap Checkout → optionally link to a pending bank alert",
+                                "Edit the settled total anytime after checkout"
+                            )
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.Default.CreditCard,
+                            title = "Credit Card Tracking",
+                            purpose = "Track credit card spends separately and log repayments against outstanding bills.",
+                            steps = listOf(
+                                "Tap Cards tab → Add a credit card by name",
+                                "Mark debit transactions as 'Paid via Credit Card' during enrichment",
+                                "Tap Repay on a card to log bill payments and settle dues"
+                            )
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.Default.Autorenew,
+                            title = "Recurring Payments",
+                            purpose = "Auto-log recurring expenses like rent, subscriptions, or EMIs on schedule.",
+                            steps = listOf(
+                                "During enrichment, toggle 'Recurring' and pick a frequency",
+                                "Manage all schedules in Settings → Recurring section",
+                                "Toggle active/inactive or delete schedules anytime"
+                            )
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.Default.Savings,
+                            title = "Budget Goals",
+                            purpose = "Set monthly income, savings target, and spending cap to track discretionary spending.",
+                            steps = listOf(
+                                "Go to Settings → Budget Goals",
+                                "Enter monthly income, savings %, and spending %",
+                                "Feed will show daily allowance and budget utilization"
+                            )
+                        )
+                        FeatureGuideItem(
+                            icon = Icons.Default.BackupTable,
+                            title = "Backup & Restore",
+                            purpose = "Export your entire ledger as a secure ZIP backup. Restore from any previous backup file.",
+                            steps = listOf(
+                                "Settings → Tap Backup to save a .zip file",
+                                "Settings → Tap Restore and pick a backup file",
+                                "Auto-backup runs nightly if enabled"
+                            )
+                        )
+                    }
+                }
+            }
+        }
+
         // Share App card
         Card(
             shape = RoundedCornerShape(12.dp),
@@ -928,7 +1208,7 @@ fun SettingsScreen(
                             type = "text/plain"
                             putExtra(
                                 android.content.Intent.EXTRA_TEXT,
-                                "Hey! Check out KharchaDekh, an ultra-secure, 100% offline personal finance and budget manager that auto-reads bank notification alerts completely on-device without exposing your data! Download it now: https://github.com/SudegoraAnkit/KharchaDekh"
+                                "Hey! 🚀 Take control of your money with KharchaDekh — a premium, 100% offline & secure expense manager. It reads SMS bank alerts fully on-device with zero internet required. No ads, no tracking, complete privacy! 🛡️💰\n\nDownload it on Google Play: https://play.google.com/store/apps/details?id=com.ankitsudegora"
                             )
                         }
                         context.startActivity(android.content.Intent.createChooser(shareIntent, "Share KharchaDekh with friends"))
@@ -991,7 +1271,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.secondary
                 )
                 Text(
-                    text = "Version v1.1.0 • Secure Ledger",
+                    text = "Version v1.1.2.3 • Secure Ledger",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )
@@ -1111,5 +1391,107 @@ fun SettingsScreen(
                 }
             }
         )
+    }
+}
+
+@Composable
+private fun FeatureGuideItem(
+    icon: ImageVector,
+    title: String,
+    purpose: String,
+    steps: List<String>
+) {
+    var expanded by remember { mutableStateOf(false) }
+
+    Card(
+        shape = RoundedCornerShape(10.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
+        ),
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable { expanded = !expanded }
+    ) {
+        Column(
+            modifier = Modifier.padding(12.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(30.dp)
+                        .clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.tertiaryContainer),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onTertiaryContainer,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        text = title,
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.SemiBold)
+                    )
+                    Text(
+                        text = purpose,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = if (expanded) Int.MAX_VALUE else 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                }
+                Icon(
+                    imageVector = if (expanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.outline,
+                    modifier = Modifier.size(20.dp)
+                )
+            }
+
+            AnimatedVisibility(
+                visible = expanded,
+                enter = expandVertically(),
+                exit = shrinkVertically()
+            ) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier.padding(start = 40.dp, top = 4.dp)
+                ) {
+                    steps.forEachIndexed { index, step ->
+                        Row(
+                            verticalAlignment = Alignment.Top,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(20.dp)
+                                    .clip(CircleShape)
+                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(
+                                    text = "${index + 1}",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+                            Text(
+                                text = step,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }

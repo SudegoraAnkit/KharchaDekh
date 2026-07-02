@@ -16,6 +16,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.*
 import androidx.compose.material.icons.automirrored.filled.*
+import androidx.compose.material.icons.automirrored.outlined.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -40,43 +41,52 @@ import java.text.SimpleDateFormat
 import java.util.*
 
 @Composable
-fun GroceryScreen(
-    groceryLists: List<GroceryListWithItems>,
+fun PlannedListsScreen(
+    plannedLists: List<PlannedListWithItems>,
     categories: List<Category>,
-    onAddList: (String, Double?) -> Unit,
-    onDeleteList: (GroceryList) -> Unit,
-    onDuplicateList: (GroceryListWithItems, String) -> Unit,
+    pendingTransactions: List<TransactionWithCategory>,
+    onAddList: (String, Double?, Long?) -> Unit,
+    onDeleteList: (PlannedList) -> Unit,
+    onDuplicateList: (PlannedListWithItems, String) -> Unit,
     onAddItem: (Long, String, Int, Double) -> Unit,
-    onUpdateItem: (GroceryItem) -> Unit,
-    onDeleteItem: (GroceryItem) -> Unit,
-    onToggleItem: (GroceryItem) -> Unit,
+    onUpdateItem: (PlannedItem) -> Unit,
+    onDeleteItem: (PlannedItem) -> Unit,
+    onToggleItem: (PlannedItem) -> Unit,
     onGetLastPrice: suspend (String) -> Double?,
-    onCheckout: (GroceryListWithItems, String, Long?, Boolean) -> Unit
+    onCheckout: (PlannedListWithItems, String, Long?, Boolean, Long?) -> Unit,
+    onUpdateSettleAmount: (Long, Double) -> Unit,
+    onGetTransactionByLinkedListId: suspend (Long) -> Transaction?
 ) {
     var activeListId by remember { mutableStateOf<Long?>(null) }
     
-    val activeList = remember(groceryLists, activeListId) {
-        groceryLists.find { it.groceryList.id == activeListId }
+    val activeList = remember(plannedLists, activeListId) {
+        plannedLists.find { it.plannedList.id == activeListId }
     }
 
     if (activeList != null) {
-        GroceryDetailScreen(
+        PlannedDetailScreen(
             listWithItems = activeList,
             categories = categories,
+            pendingTransactions = pendingTransactions,
             onAddItem = onAddItem,
             onUpdateItem = onUpdateItem,
             onDeleteItem = onDeleteItem,
             onToggleItem = onToggleItem,
             onGetLastPrice = onGetLastPrice,
-            onCheckout = { method, categoryId, carryForward ->
-                onCheckout(activeList, method, categoryId, carryForward)
+            onCheckout = { method, categoryId, carryForward, linkedPendingTxnId ->
+                onCheckout(activeList, method, categoryId, carryForward, linkedPendingTxnId)
                 activeListId = null
             },
+            onUpdateSettleAmount = { amount ->
+                onUpdateSettleAmount(activeList.plannedList.id, amount)
+            },
+            onGetTransactionByLinkedListId = onGetTransactionByLinkedListId,
             onNavigateBack = { activeListId = null }
         )
     } else {
-        GroceryMasterScreen(
-            groceryLists = groceryLists,
+        PlannedMasterScreen(
+            plannedLists = plannedLists,
+            categories = categories,
             onAddList = onAddList,
             onDeleteList = onDeleteList,
             onDuplicateList = onDuplicateList,
@@ -87,16 +97,18 @@ fun GroceryScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GroceryMasterScreen(
-    groceryLists: List<GroceryListWithItems>,
-    onAddList: (String, Double?) -> Unit,
-    onDeleteList: (GroceryList) -> Unit,
-    onDuplicateList: (GroceryListWithItems, String) -> Unit,
+fun PlannedMasterScreen(
+    plannedLists: List<PlannedListWithItems>,
+    categories: List<Category>,
+    onAddList: (String, Double?, Long?) -> Unit,
+    onDeleteList: (PlannedList) -> Unit,
+    onDuplicateList: (PlannedListWithItems, String) -> Unit,
     onSelectList: (Long) -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
     var listName by remember { mutableStateOf("") }
     var budgetCapStr by remember { mutableStateOf("") }
+    var isCompletedSectionExpanded by remember { mutableStateOf(false) }
 
     Scaffold(
         floatingActionButton = {
@@ -104,7 +116,7 @@ fun GroceryMasterScreen(
                 onClick = { showAddDialog = true },
                 containerColor = MaterialTheme.colorScheme.primary,
                 contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.testTag("add_grocery_list_fab")
+                modifier = Modifier.testTag("add_planned_list_fab")
             ) {
                 Icon(Icons.Default.Add, "New List")
             }
@@ -118,18 +130,18 @@ fun GroceryMasterScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             Text(
-                text = "Shopping Drafts & Checkpoints",
+                text = "Planned Checklists",
                 style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onBackground
             )
             
             Text(
-                text = "Build local grocery checklists offline, set budget caps, and convert drafts into paid transactions at checkout.",
+                text = "Draft shopping checklists, plan home/maintenance items, set budget caps, and check them off. Automatically post as transactions upon settlement.",
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
 
-            if (groceryLists.isEmpty()) {
+            if (plannedLists.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -141,13 +153,13 @@ fun GroceryMasterScreen(
                         verticalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
                         Icon(
-                            imageVector = Icons.Outlined.ShoppingCart,
+                            imageVector = Icons.AutoMirrored.Outlined.PlaylistAddCheck,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
                             modifier = Modifier.size(64.dp)
                         )
                         Text(
-                            text = "No shopping lists created yet.",
+                            text = "No planned lists created yet.",
                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -159,19 +171,78 @@ fun GroceryMasterScreen(
                     }
                 }
             } else {
+                val draftLists = plannedLists.filter { it.plannedList.status != "COMPLETED" }
+                val completedLists = plannedLists.filter { it.plannedList.status == "COMPLETED" }
+
                 LazyColumn(
                     verticalArrangement = Arrangement.spacedBy(12.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    items(groceryLists, key = { it.groceryList.id }) { item ->
-                        GroceryListCard(
-                            listWithItems = item,
-                            onClick = { onSelectList(item.groceryList.id) },
-                            onDelete = { onDeleteList(item.groceryList) },
-                            onClone = {
-                                onDuplicateList(item, "${item.groceryList.name} (Copy)")
+                    if (draftLists.isNotEmpty()) {
+                        items(draftLists, key = { it.plannedList.id }) { item ->
+                            PlannedListCard(
+                                listWithItems = item,
+                                categories = categories,
+                                onClick = { onSelectList(item.plannedList.id) },
+                                onDelete = { onDeleteList(item.plannedList) },
+                                onClone = {
+                                    onDuplicateList(item, "${item.plannedList.name} (Copy)")
+                                }
+                            )
+                        }
+                    }
+
+                    if (completedLists.isNotEmpty()) {
+                        item {
+                            Surface(
+                                onClick = { isCompletedSectionExpanded = !isCompletedSectionExpanded },
+                                color = Color.Transparent,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.CheckCircle,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.secondary
+                                        )
+                                        Text(
+                                            text = "Completed Lists (${completedLists.size})",
+                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    }
+                                    Icon(
+                                        imageVector = if (isCompletedSectionExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
+                                        contentDescription = if (isCompletedSectionExpanded) "Collapse" else "Expand",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                }
                             }
-                        )
+                        }
+
+                        if (isCompletedSectionExpanded) {
+                            items(completedLists, key = { it.plannedList.id }) { item ->
+                                PlannedListCard(
+                                    listWithItems = item,
+                                    categories = categories,
+                                    onClick = { onSelectList(item.plannedList.id) },
+                                    onDelete = { onDeleteList(item.plannedList) },
+                                    onClone = {
+                                        onDuplicateList(item, "${item.plannedList.name} (Copy)")
+                                    }
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -179,9 +250,18 @@ fun GroceryMasterScreen(
     }
 
     if (showAddDialog) {
+        val groceryCategory = remember(categories) {
+            categories.find { it.name.lowercase() == "groceries" } ?: categories.firstOrNull()
+        }
+        var selectedCategoryId by remember { mutableStateOf<Long?>(groceryCategory?.id) }
+        var categoryDropdownExpanded by remember { mutableStateOf(false) }
+        val selectedCategory = remember(categories, selectedCategoryId) {
+            categories.find { it.id == selectedCategoryId }
+        }
+
         AlertDialog(
             onDismissRequest = { showAddDialog = false },
-            title = { Text("Create Shopping List") },
+            title = { Text("Create Planned List") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     OutlinedTextField(
@@ -203,6 +283,58 @@ fun GroceryMasterScreen(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth()
                     )
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        ExposedDropdownMenuBox(
+                            expanded = categoryDropdownExpanded,
+                            onExpandedChange = { categoryDropdownExpanded = !categoryDropdownExpanded }
+                        ) {
+                            OutlinedTextField(
+                                value = selectedCategory?.name ?: "Select Category",
+                                onValueChange = {},
+                                readOnly = true,
+                                label = { Text("Default Category Association") },
+                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryDropdownExpanded) },
+                                leadingIcon = {
+                                    Icon(
+                                        imageVector = getIconVector(selectedCategory?.iconResName ?: "shopping_cart"),
+                                        contentDescription = null,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                },
+                                modifier = Modifier
+                                    .menuAnchor(type = MenuAnchorType.PrimaryNotEditable, enabled = true)
+                                    .fillMaxWidth(),
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                            ExposedDropdownMenu(
+                                expanded = categoryDropdownExpanded,
+                                onDismissRequest = { categoryDropdownExpanded = false }
+                            ) {
+                                categories.forEach { cat ->
+                                    DropdownMenuItem(
+                                        text = {
+                                            Row(
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                Icon(
+                                                    imageVector = getIconVector(cat.iconResName),
+                                                    contentDescription = null,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Text(cat.name)
+                                            }
+                                        },
+                                        onClick = {
+                                            selectedCategoryId = cat.id
+                                            categoryDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    }
                 }
             },
             confirmButton = {
@@ -210,7 +342,7 @@ fun GroceryMasterScreen(
                     onClick = {
                         if (listName.isNotBlank()) {
                             val cap = budgetCapStr.toDoubleOrNull()
-                            onAddList(listName.trim(), cap)
+                            onAddList(listName.trim(), cap, selectedCategoryId)
                             listName = ""
                             budgetCapStr = ""
                             showAddDialog = false
@@ -231,21 +363,25 @@ fun GroceryMasterScreen(
 }
 
 @Composable
-fun GroceryListCard(
-    listWithItems: GroceryListWithItems,
+fun PlannedListCard(
+    listWithItems: PlannedListWithItems,
+    categories: List<Category>,
     onClick: () -> Unit,
     onDelete: () -> Unit,
     onClone: () -> Unit
 ) {
     val totalAmount = listWithItems.items.sumOf { it.price * it.quantity }
-    val checkedAmount = listWithItems.items.filter { it.isChecked }.sumOf { it.price * it.quantity }
     val checkedCount = listWithItems.items.count { it.isChecked }
     val totalCount = listWithItems.items.size
-    val isCompleted = listWithItems.groceryList.status == "COMPLETED"
+    val isCompleted = listWithItems.plannedList.status == "COMPLETED"
 
-    val date = Date(listWithItems.groceryList.createdTimestamp)
+    val date = Date(listWithItems.plannedList.createdTimestamp)
     val formatter = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
     val dateString = formatter.format(date)
+
+    val associatedCat = remember(categories, listWithItems.plannedList.categoryId) {
+        categories.find { it.id == listWithItems.plannedList.categoryId }
+    }
 
     Card(
         onClick = onClick,
@@ -273,7 +409,7 @@ fun GroceryListCard(
                 Column(modifier = Modifier.weight(1f)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = listWithItems.groceryList.name,
+                            text = listWithItems.plannedList.name,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = if (isCompleted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface,
                             maxLines = 1,
@@ -288,7 +424,7 @@ fun GroceryListCard(
                                 .background(
                                     if (isCompleted) MaterialTheme.colorScheme.surfaceVariant 
                                     else MaterialTheme.colorScheme.primaryContainer
-                                )
+                                  )
                                 .padding(horizontal = 6.dp, vertical = 2.dp)
                         ) {
                             Text(
@@ -299,11 +435,34 @@ fun GroceryListCard(
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
-                    Text(
-                        text = dateString,
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                    )
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        if (associatedCat != null) {
+                            Icon(
+                                imageVector = getIconVector(associatedCat.iconResName),
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.secondary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Text(
+                                text = associatedCat.name,
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Text(
+                                text = "•",
+                                style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
+                            )
+                        }
+                        Text(
+                            text = dateString,
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                        )
+                    }
                 }
 
                 Row {
@@ -358,9 +517,9 @@ fun GroceryListCard(
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
                             color = if (isCompleted) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
                         )
-                        if (listWithItems.groceryList.budgetCap != null) {
+                        if (listWithItems.plannedList.budgetCap != null) {
                             Text(
-                                text = " / ₹${listWithItems.groceryList.budgetCap}",
+                                text = " / ₹${listWithItems.plannedList.budgetCap}",
                                 style = MaterialTheme.typography.labelSmall,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
                             )
@@ -374,31 +533,39 @@ fun GroceryListCard(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun GroceryDetailScreen(
-    listWithItems: GroceryListWithItems,
+fun PlannedDetailScreen(
+    listWithItems: PlannedListWithItems,
     categories: List<Category>,
+    pendingTransactions: List<TransactionWithCategory>,
     onAddItem: (Long, String, Int, Double) -> Unit,
-    onUpdateItem: (GroceryItem) -> Unit,
-    onDeleteItem: (GroceryItem) -> Unit,
-    onToggleItem: (GroceryItem) -> Unit,
+    onUpdateItem: (PlannedItem) -> Unit,
+    onDeleteItem: (PlannedItem) -> Unit,
+    onToggleItem: (PlannedItem) -> Unit,
     onGetLastPrice: suspend (String) -> Double?,
-    onCheckout: (String, Long?, Boolean) -> Unit,
+    onCheckout: (String, Long?, Boolean, Long?) -> Unit,
+    onUpdateSettleAmount: (Double) -> Unit,
+    onGetTransactionByLinkedListId: suspend (Long) -> Transaction?,
     onNavigateBack: () -> Unit
 ) {
-    val coroutineScope = rememberCoroutineScope()
     var itemName by remember { mutableStateOf("") }
     var itemQty by remember { mutableStateOf(1) }
     var itemPriceStr by remember { mutableStateOf("") }
     var showCheckoutDialog by remember { mutableStateOf(false) }
+    var showEditAmountDialog by remember { mutableStateOf(false) }
 
     // Autocomplete estimates
     var estimatedPrice by remember { mutableStateOf<Double?>(null) }
 
-    val listId = listWithItems.groceryList.id
-    val isCompleted = listWithItems.groceryList.status == "COMPLETED"
+    val listId = listWithItems.plannedList.id
+    val isCompleted = listWithItems.plannedList.status == "COMPLETED"
+
+    var linkedTransaction by remember { mutableStateOf<Transaction?>(null) }
+    LaunchedEffect(listId) {
+        linkedTransaction = onGetTransactionByLinkedListId(listId)
+    }
 
     val totalAmount = listWithItems.items.sumOf { it.price * it.quantity }
-    val budgetCap = listWithItems.groceryList.budgetCap
+    val budgetCap = listWithItems.plannedList.budgetCap
 
     // Calculate budget state colors
     val (footerBgColor, footerTextColor) = remember(totalAmount, budgetCap) {
@@ -427,7 +594,7 @@ fun GroceryDetailScreen(
                 title = {
                     Column {
                         Text(
-                            text = listWithItems.groceryList.name,
+                            text = listWithItems.plannedList.name,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                         )
                         if (budgetCap != null) {
@@ -505,6 +672,44 @@ fun GroceryDetailScreen(
                                 Icon(Icons.Default.CheckCircle, null)
                                 Spacer(modifier = Modifier.width(6.dp))
                                 Text("Checkout", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+                            }
+                        }
+                    }
+                }
+            } else {
+                Surface(
+                    tonalElevation = 6.dp,
+                    shadowElevation = 8.dp,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column {
+                            Text("Final Settled Total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                val displayAmount = linkedTransaction?.amount ?: totalAmount
+                                Text(
+                                    text = "₹${"%,.2f".format(displayAmount)}",
+                                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
+                                    color = MaterialTheme.colorScheme.secondary
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                IconButton(
+                                    onClick = { showEditAmountDialog = true },
+                                    modifier = Modifier.size(24.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "Edit Amount",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                     }
@@ -630,7 +835,7 @@ fun GroceryDetailScreen(
                 }
             }
 
-            // Grocery Items Checklist Table
+            // Items Checklist Checklist
             if (listWithItems.items.isEmpty()) {
                 Box(
                     modifier = Modifier
@@ -649,21 +854,20 @@ fun GroceryDetailScreen(
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                     modifier = Modifier.weight(1f)
                 ) {
-                    // Group unchecked at top, checked at bottom
                     val uncheckedItems = listWithItems.items.filter { !it.isChecked }
                     val checkedItems = listWithItems.items.filter { it.isChecked }
 
                     if (uncheckedItems.isNotEmpty()) {
                         item {
                             Text(
-                                text = "To Buy",
+                                text = "To Buy / Settle",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.padding(vertical = 4.dp)
                             )
                         }
                         items(uncheckedItems, key = { "item_${it.id}" }) { item ->
-                            GroceryItemRow(
+                            PlannedItemRow(
                                 item = item,
                                 isCompleted = isCompleted,
                                 onToggle = { onToggleItem(item) },
@@ -677,14 +881,14 @@ fun GroceryDetailScreen(
                     if (checkedItems.isNotEmpty()) {
                         item {
                             Text(
-                                text = "Checked Off",
+                                text = "Checked / Bought",
                                 style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.secondary,
                                 modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
                             )
                         }
                         items(checkedItems, key = { "item_${it.id}" }) { item ->
-                            GroceryItemRow(
+                            PlannedItemRow(
                                 item = item,
                                 isCompleted = isCompleted,
                                 onToggle = { onToggleItem(item) },
@@ -703,18 +907,68 @@ fun GroceryDetailScreen(
         CheckoutSummaryDialog(
             listWithItems = listWithItems,
             categories = categories,
+            pendingTransactions = pendingTransactions,
             onDismiss = { showCheckoutDialog = false },
-            onConfirm = { method, categoryId, carryForward ->
-                onCheckout(method, categoryId, carryForward)
+            onConfirm = { method, categoryId, carryForward, linkedPendingTxnId ->
+                onCheckout(method, categoryId, carryForward, linkedPendingTxnId)
                 showCheckoutDialog = false
+            }
+        )
+    }
+
+    if (showEditAmountDialog) {
+        var editAmountStr by remember {
+            val amt = linkedTransaction?.amount ?: totalAmount
+            mutableStateOf(if (amt == 0.0) "" else amt.toString())
+        }
+        AlertDialog(
+            onDismissRequest = { showEditAmountDialog = false },
+            title = { Text("Edit Settle Amount") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Update the final cash settled for this planned list. This will modify the associated transaction in your ledger.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    OutlinedTextField(
+                        value = editAmountStr,
+                        onValueChange = { input ->
+                            if (input.isEmpty() || input.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
+                                editAmountStr = input
+                            }
+                        },
+                        label = { Text("Amount (₹)") },
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val newAmount = editAmountStr.toDoubleOrNull() ?: 0.0
+                        onUpdateSettleAmount(newAmount)
+                        showEditAmountDialog = false
+                    },
+                    enabled = editAmountStr.isNotBlank() && (editAmountStr.toDoubleOrNull() ?: 0.0) > 0.0
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showEditAmountDialog = false }) {
+                    Text("Cancel")
+                }
             }
         )
     }
 }
 
 @Composable
-fun GroceryItemRow(
-    item: GroceryItem,
+fun PlannedItemRow(
+    item: PlannedItem,
     isCompleted: Boolean,
     onToggle: () -> Unit,
     onDelete: () -> Unit,
@@ -774,7 +1028,6 @@ fun GroceryItemRow(
                     overflow = TextOverflow.Ellipsis
                 )
                 
-                // Subtext showing running multiplication
                 if (item.price > 0) {
                     Text(
                         text = "${item.quantity} × ₹${"%,.2f".format(item.price)} = ₹${"%,.2f".format(item.quantity * item.price)}",
@@ -785,7 +1038,6 @@ fun GroceryItemRow(
             }
 
             if (!isCompleted) {
-                // Quantity buttons
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -809,7 +1061,6 @@ fun GroceryItemRow(
                     }
                 }
 
-                // Price entry field
                 OutlinedTextField(
                     value = priceStr,
                     onValueChange = { input ->
@@ -841,7 +1092,6 @@ fun GroceryItemRow(
                     )
                 }
             } else {
-                // Display simple qty and total price for historical listings
                 Text(
                     text = "₹${"%,.2f".format(item.price * item.quantity)}",
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
@@ -855,10 +1105,11 @@ fun GroceryItemRow(
 
 @Composable
 fun CheckoutSummaryDialog(
-    listWithItems: GroceryListWithItems,
+    listWithItems: PlannedListWithItems,
     categories: List<Category>,
+    pendingTransactions: List<TransactionWithCategory>,
     onDismiss: () -> Unit,
-    onConfirm: (paymentMethod: String, categoryId: Long?, carryForward: Boolean) -> Unit
+    onConfirm: (paymentMethod: String, categoryId: Long?, carryForward: Boolean, linkedPendingTxnId: Long?) -> Unit
 ) {
     val checkedItems = listWithItems.items.filter { it.isChecked }
     val unboughtCount = listWithItems.items.count { !it.isChecked }
@@ -869,14 +1120,18 @@ fun CheckoutSummaryDialog(
     var carryForward by remember { mutableStateOf(true) }
     var dropdownExpanded by remember { mutableStateOf(false) }
 
+    var selectedPendingTxnId by remember { mutableStateOf<Long?>(null) }
+    var pendingDropdownExpanded by remember { mutableStateOf(false) }
+
     val debitCategories = remember(categories) {
         val inflowNames = setOf("salary", "refund", "interest", "other inflow")
         categories.filter { it.name.lowercase() !in inflowNames }
     }
 
-    LaunchedEffect(debitCategories) {
+    LaunchedEffect(debitCategories, listWithItems.plannedList.categoryId) {
         if (selectedCategoryId == null) {
-            selectedCategoryId = debitCategories.find { it.name.lowercase() == "groceries" }?.id
+            selectedCategoryId = listWithItems.plannedList.categoryId 
+                ?: debitCategories.find { it.name.lowercase() == "groceries" }?.id
                 ?: debitCategories.firstOrNull()?.id
         }
     }
@@ -912,6 +1167,87 @@ fun CheckoutSummaryDialog(
                 )
 
                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                // Map to Pending transaction dropdown (Optional)
+                if (pendingTransactions.isNotEmpty()) {
+                    Text(
+                        text = "Link to Pending Bank Alert (Optional)",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.secondary
+                    )
+                    
+                    val selectedPendingTxn = remember(selectedPendingTxnId, pendingTransactions) {
+                        pendingTransactions.find { it.transaction.id == selectedPendingTxnId }
+                    }
+
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedButton(
+                            onClick = { pendingDropdownExpanded = true },
+                            modifier = Modifier.fillMaxWidth(),
+                            shape = RoundedCornerShape(12.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = if (selectedPendingTxn != null) {
+                                        "₹${selectedPendingTxn.transaction.amount} from ${selectedPendingTxn.transaction.merchant}"
+                                    } else {
+                                        "Select alert to map (no duplicate)"
+                                    },
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (selectedPendingTxnId != null) {
+                                        IconButton(
+                                            onClick = { selectedPendingTxnId = null },
+                                            modifier = Modifier.size(24.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Default.Clear,
+                                                contentDescription = "Clear selection",
+                                                modifier = Modifier.size(16.dp)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                    }
+                                    Icon(Icons.Default.ArrowDropDown, null)
+                                }
+                            }
+                        }
+
+                        DropdownMenu(
+                            expanded = pendingDropdownExpanded,
+                            onDismissRequest = { pendingDropdownExpanded = false },
+                            modifier = Modifier.fillMaxWidth(0.85f)
+                        ) {
+                            pendingTransactions.forEach { pt ->
+                                DropdownMenuItem(
+                                    text = {
+                                        Text("₹${pt.transaction.amount} - ${pt.transaction.merchant} (${pt.category?.name ?: "Pending"})")
+                                    },
+                                    onClick = {
+                                        selectedPendingTxnId = pt.transaction.id
+                                        pendingDropdownExpanded = false
+                                        if (pt.transaction.categoryId != null) {
+                                            selectedCategoryId = pt.transaction.categoryId
+                                        }
+                                        val u = pt.transaction.paymentMethod
+                                        if (u == "UPI" || u == "CARD" || u == "CASH") {
+                                            paymentMethod = u
+                                        }
+                                    }
+                                )
+                            }
+                        }
+                    }
+                    
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+                }
 
                 // Select Payment Mode Row
                 Text(
@@ -1050,7 +1386,7 @@ fun CheckoutSummaryDialog(
                         Text("Cancel")
                     }
                     Button(
-                        onClick = { onConfirm(paymentMethod, selectedCategoryId, carryForward) },
+                        onClick = { onConfirm(paymentMethod, selectedCategoryId, carryForward, selectedPendingTxnId) },
                         modifier = Modifier.weight(1.5f)
                     ) {
                         Icon(Icons.Default.Check, null)
