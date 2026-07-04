@@ -484,7 +484,8 @@ fun DashboardScreen(
                 1 -> {
                     ChartsScreen(
                         analytics = analytics,
-                        allTransactions = allTransactions
+                        allTransactions = allTransactions,
+                        billingCycleStartDay = billingCycleStartDay
                     )
                 }
                 2 -> {
