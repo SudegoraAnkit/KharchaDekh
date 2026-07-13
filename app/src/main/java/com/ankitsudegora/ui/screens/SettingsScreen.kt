@@ -1271,7 +1271,7 @@ fun SettingsScreen(
                     color = MaterialTheme.colorScheme.secondary
                 )
                 Text(
-                    text = "Version v1.1.2.3 • Secure Ledger",
+                    text = "Version v1.1.2.4 • Secure Ledger",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
                 )

@@ -50,3 +50,8 @@ FUTURE ROADMAP:
 * List Checkout Mappings: Link checklist checkouts directly to pending alerts.
 * Settled Totals Editing: Adjust final checklist totals on checkout.
 * Refund Linking: Link credit refunds to debit transactions.
+
+------------------------------------------------------------------------
+5. WHAT'S NEW IN v1.1.2.4 (Max 300 chars)
+------------------------------------------------------------------------
+Stats v1.1.2.4: Added billing cycle filters (up to 5 cycles & All Time), metrics summary (Inflow/Outflow/Savings), interactive category drill-downs with mini 6-cycle trends, transaction history, and custom trend filters. Added a Feature Guide in Settings and premium app sharing.
