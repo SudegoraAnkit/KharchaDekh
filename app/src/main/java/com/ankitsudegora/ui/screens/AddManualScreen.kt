@@ -41,7 +41,9 @@ fun AddManualScreen(
     categories: List<Category>,
     creditCards: List<CreditCard>,
     allTransactions: List<TransactionWithCategory>,
-    onSaveTransaction: (amount: Double, type: String, merchant: String, categoryId: Long?, notes: String?, paymentMethod: String, timestamp: Long, recurringFrequency: String?, subCategory: String?, paidViaCcId: Long?, repaidCcId: Long?, selectedRepaidTxnIds: List<Long>) -> Unit,
+    isMultiCurrencyEnabled: Boolean,
+    primaryCurrency: String,
+    onSaveTransaction: (amount: Double, type: String, merchant: String, categoryId: Long?, notes: String?, paymentMethod: String, timestamp: Long, recurringFrequency: String?, subCategory: String?, paidViaCcId: Long?, repaidCcId: Long?, selectedRepaidTxnIds: List<Long>, currency: String) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -53,6 +55,7 @@ fun AddManualScreen(
     var transactionType by remember { mutableStateOf("DEBIT") } // "DEBIT" or "CREDIT"
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
     var paymentMethod by remember { mutableStateOf("CASH") } // "CASH", "UPI", "CARD", "NETBANKING"
+    var selectedCurrency by remember(primaryCurrency) { mutableStateOf(primaryCurrency) }
 
     var isRecurringChecked by remember { mutableStateOf(false) }
     var selectedFrequency by remember { mutableStateOf("MONTHLY") }
@@ -178,12 +181,58 @@ fun AddManualScreen(
                     horizontalArrangement = Arrangement.Center,
                     modifier = Modifier.fillMaxWidth()
                 ) {
-                    Text(
-                        text = "₹",
-                        style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Black),
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(end = 4.dp)
-                    )
+                    if (isMultiCurrencyEnabled) {
+                        var currencyDropdownExpanded by remember { mutableStateOf(false) }
+                        val currencies = listOf("INR", "USD", "EUR", "GBP", "JPY", "AED", "AUD", "CAD", "SGD")
+
+                        Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+                            Surface(
+                                onClick = { currencyDropdownExpanded = true },
+                                color = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier.padding(end = 8.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(
+                                        text = getCurrencySymbol(selectedCurrency),
+                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Default.ArrowDropDown,
+                                        contentDescription = "Select Currency",
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                            }
+
+                            DropdownMenu(
+                                expanded = currencyDropdownExpanded,
+                                onDismissRequest = { currencyDropdownExpanded = false }
+                            ) {
+                                currencies.forEach { curr ->
+                                    DropdownMenuItem(
+                                        text = { Text("$curr (${getCurrencySymbol(curr)})", fontWeight = FontWeight.SemiBold) },
+                                        onClick = {
+                                            selectedCurrency = curr
+                                            currencyDropdownExpanded = false
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = getCurrencySymbol(primaryCurrency),
+                            style = MaterialTheme.typography.displayMedium.copy(fontWeight = FontWeight.Black),
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(end = 4.dp)
+                        )
+                    }
 
                     TextField(
                         value = amountStr,
@@ -806,7 +855,8 @@ fun AddManualScreen(
                     subCategory,
                     ccId,
                     repCcId,
-                    repTxnIds
+                    repTxnIds,
+                    selectedCurrency
                 )
             },
             enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),
@@ -831,3 +881,19 @@ fun AddManualScreen(
         Spacer(modifier = Modifier.height(16.dp))
     }
 }
+
+fun getCurrencySymbol(code: String): String {
+    return when (code.uppercase()) {
+        "INR" -> "₹"
+        "USD" -> "$"
+        "EUR" -> "€"
+        "GBP" -> "£"
+        "JPY" -> "¥"
+        "AED" -> "د.إ"
+        "AUD" -> "A$"
+        "CAD" -> "C$"
+        "SGD" -> "S$"
+        else -> code
+    }
+}
+

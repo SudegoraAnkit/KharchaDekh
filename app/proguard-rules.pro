@@ -7,3 +7,10 @@
 
 # Keep the Notification Listener Service to ensure successful system binding
 -keep class com.ankitsudegora.service.TransactionNotificationListener { *; }
+
+# OkHttp rules to ignore missing optional dependencies
+-dontwarn okhttp3.internal.platform.**
+-dontwarn org.conscrypt.**
+-dontwarn org.bouncycastle.**
+-dontwarn org.openjsse.**
+

@@ -40,8 +40,9 @@ class EnrichmentScreenTest {
                     categories = categories,
                     creditCards = emptyList(),
                     allTransactions = emptyList(),
+                    allPlannedLists = emptyList(),
                     onGetTransaction = { txn },
-                    onFinalizeTransaction = { _, _, _, _, _, _, _, _, _, _, _ -> },
+                    onFinalizeTransaction = { _, _, _, _, _, _, _, _, _, _, _, _, _ -> },
                     onNavigateBack = {}
                 )
             }

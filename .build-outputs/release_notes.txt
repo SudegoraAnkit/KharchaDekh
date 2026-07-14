@@ -55,3 +55,9 @@ FUTURE ROADMAP:
 5. WHAT'S NEW IN v1.1.2.4 (Max 300 chars)
 ------------------------------------------------------------------------
 Stats v1.1.2.4: Added billing cycle filters (up to 5 cycles & All Time), metrics summary (Inflow/Outflow/Savings), interactive category drill-downs with mini 6-cycle trends, transaction history, and custom trend filters. Added a Feature Guide in Settings and premium app sharing.
+
+------------------------------------------------------------------------
+6. WHAT'S NEW IN v1.2.0 (Max 300 chars)
+------------------------------------------------------------------------
+v1.2.0: Added offline-first multi-currency support tracking in 9 currencies (USD, INR, EUR, etc.) with automatic background rate sync over Wi-Fi. Stats, charts, budgets, and discretionary allowances convert dynamically to your primary currency. Fixed SMS billing alerts parsing bug.
+

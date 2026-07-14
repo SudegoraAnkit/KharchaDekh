@@ -799,7 +799,7 @@ fun EnrichmentScreen(
                             onDismissRequest = { listDropdownExpanded = false },
                             modifier = Modifier.fillMaxWidth(0.9f)
                         ) {
-                            allPlannedLists.forEach { pt ->
+                            allPlannedLists.filter { it.plannedList.status != "COMPLETED" }.forEach { pt ->
                                 DropdownMenuItem(
                                     text = { Text("${pt.plannedList.name} (${pt.plannedList.status})") },
                                     onClick = {

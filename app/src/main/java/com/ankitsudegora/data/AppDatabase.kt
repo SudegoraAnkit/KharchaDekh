@@ -48,7 +48,8 @@ data class Transaction(
     val linkedListId: Long? = null,
     val paidViaCcId: Long? = null,
     val ccRepaymentId: Long? = null,
-    val refundedTxnId: Long? = null
+    val refundedTxnId: Long? = null,
+    val currency: String = "INR"
 )
 
 @Entity(
@@ -75,7 +76,8 @@ data class RecurringSchedule(
     val lastTriggered: Long,
     val nextTriggerTime: Long,
     val isActive: Boolean = true,
-    val subCategory: String? = null
+    val subCategory: String? = null,
+    val currency: String = "INR"
 )
 
 @Entity(tableName = "app_settings")
@@ -98,6 +100,14 @@ data class TransactionWithCategory(
 data class CreditCard(
     @PrimaryKey(autoGenerate = true) val id: Long = 0,
     val cardName: String
+)
+
+@Entity(tableName = "exchange_rates", primaryKeys = ["baseCurrency", "targetCurrency"])
+data class ExchangeRate(
+    val baseCurrency: String,
+    val targetCurrency: String,
+    val rate: Double,
+    val timestamp: Long
 )
 
 @Entity(tableName = "planned_lists")
@@ -289,7 +299,22 @@ interface CreditCardDao {
     suspend fun deleteCard(card: CreditCard)
 }
 
-@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, PlannedList::class, PlannedItem::class, CreditCard::class], version = 10, exportSchema = false)
+@Dao
+interface ExchangeRateDao {
+    @Query("SELECT * FROM exchange_rates")
+    fun getAllRatesFlow(): Flow<List<ExchangeRate>>
+
+    @Query("SELECT * FROM exchange_rates")
+    suspend fun getAllRates(): List<ExchangeRate>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRates(rates: List<ExchangeRate>)
+
+    @Query("DELETE FROM exchange_rates")
+    suspend fun clearAllRates()
+}
+
+@Database(entities = [Category::class, Transaction::class, RecurringSchedule::class, AppSetting::class, PlannedList::class, PlannedItem::class, CreditCard::class, ExchangeRate::class], version = 11, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun categoryDao(): CategoryDao
     abstract fun transactionDao(): TransactionDao
@@ -297,6 +322,7 @@ abstract class AppDatabase : RoomDatabase() {
     abstract fun appSettingDao(): AppSettingDao
     abstract fun plannedDao(): PlannedDao
     abstract fun creditCardDao(): CreditCardDao
+    abstract fun exchangeRateDao(): ExchangeRateDao
 
     companion object {
         @Volatile
@@ -413,6 +439,14 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
+        val MIGRATION_10_11 = object : Migration(10, 11) {
+            override fun migrate(db: SupportSQLiteDatabase) {
+                db.execSQL("ALTER TABLE `transactions` ADD COLUMN `currency` TEXT NOT NULL DEFAULT 'INR'")
+                db.execSQL("ALTER TABLE `recurring_schedules` ADD COLUMN `currency` TEXT NOT NULL DEFAULT 'INR'")
+                db.execSQL("CREATE TABLE IF NOT EXISTS `exchange_rates` (`baseCurrency` TEXT NOT NULL, `targetCurrency` TEXT NOT NULL, `rate` REAL NOT NULL, `timestamp` INTEGER NOT NULL, PRIMARY KEY(`baseCurrency`, `targetCurrency`))")
+            }
+        }
+
         fun getDatabase(context: Context): AppDatabase {
             return INSTANCE ?: synchronized(this) {
                 val instance = Room.databaseBuilder(
@@ -420,7 +454,7 @@ abstract class AppDatabase : RoomDatabase() {
                     AppDatabase::class.java,
                     "kharcha_dekh_db"
                 )
-                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+                .addMigrations(MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, MIGRATION_10_11)
                 .fallbackToDestructiveMigration(false)
                 .addCallback(object : RoomDatabase.Callback() {
                     override fun onCreate(db: SupportSQLiteDatabase) {

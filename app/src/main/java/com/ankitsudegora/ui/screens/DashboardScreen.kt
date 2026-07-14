@@ -55,8 +55,11 @@ fun DashboardScreen(
     onSettingsClicked: () -> Unit,
     billingCycleStartDay: Int,
     onExportCsvCalendar: (List<TransactionWithCategory>) -> Unit,
-    onExportPdfCalendar: (List<TransactionWithCategory>) -> Unit
+    onExportPdfCalendar: (List<TransactionWithCategory>) -> Unit,
+    primaryCurrency: String,
+    onConvertAmount: (Double, String) -> Double
 ) {
+    val currencySymbol = remember(primaryCurrency) { getCurrencySymbol(primaryCurrency) }
     val initials = remember(userName) {
         userName.split(" ")
             .filter { it.isNotBlank() }
@@ -302,21 +305,22 @@ fun DashboardScreen(
                                 spendingTargetPct = spendingTargetPct,
                                 selectedFilter = selectedFilter,
                                 monthlyCategorySpends = monthlyCategorySpends,
-                                forecastAllowance = forecastAllowance
+                                forecastAllowance = forecastAllowance,
+                                currencySymbol = currencySymbol
                             )
                         }
 
                         // Cash Flow Forecasting Card
                         if (monthlyIncome > 0.0) {
                             item {
-                                SafeToSpendCard(forecastAllowance)
+                                SafeToSpendCard(forecastAllowance, currencySymbol = currencySymbol)
                             }
                         }
 
                         // Breakdown Chart
                         if (analytics.categoryBreakdown.isNotEmpty()) {
                             item {
-                                CategoryBreakdownSection(analytics)
+                                CategoryBreakdownSection(analytics, currencySymbol = currencySymbol)
                             }
                         }
 
@@ -325,7 +329,8 @@ fun DashboardScreen(
                             BudgetTrackingSection(
                                 categories = categories,
                                 monthlyCategorySpends = monthlyCategorySpends,
-                                onNavigateToCategories = onNavigateToCategories
+                                onNavigateToCategories = onNavigateToCategories,
+                                currencySymbol = currencySymbol
                             )
                         }
 
@@ -485,7 +490,9 @@ fun DashboardScreen(
                     ChartsScreen(
                         analytics = analytics,
                         allTransactions = allTransactions,
-                        billingCycleStartDay = billingCycleStartDay
+                        billingCycleStartDay = billingCycleStartDay,
+                        primaryCurrency = primaryCurrency,
+                        onConvertAmount = onConvertAmount
                     )
                 }
                 2 -> {
@@ -506,7 +513,8 @@ fun DashboardScreen(
 fun BudgetTrackingSection(
     categories: List<com.ankitsudegora.data.Category>,
     monthlyCategorySpends: Map<Long, Double>,
-    onNavigateToCategories: () -> Unit
+    onNavigateToCategories: () -> Unit,
+    currencySymbol: String
 ) {
     val budgetedCategories = categories.filter { it.budgetLimit != null && it.budgetLimit > 0.0 }
     
@@ -635,7 +643,7 @@ fun BudgetTrackingSection(
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
                                 Text(
-                                    text = "₹${"%,.0f".format(spentVal)} / ₹${"%,.0f".format(limit)}",
+                                    text = "$currencySymbol${"%,.0f".format(spentVal)} / $currencySymbol${"%,.0f".format(limit)}",
                                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -715,7 +723,8 @@ fun MetricsSummarySection(
     spendingTargetPct: Int,
     selectedFilter: TimeboxFilter,
     monthlyCategorySpends: Map<Long, Double>,
-    forecastAllowance: com.ankitsudegora.viewmodel.ForecastAllowance
+    forecastAllowance: com.ankitsudegora.viewmodel.ForecastAllowance,
+    currencySymbol: String
 ) {
     val totalExpense = analytics.totalExpense
     val totalActualSpent = monthlyCategorySpends.values.sum()
@@ -761,7 +770,7 @@ fun MetricsSummarySection(
                     modifier = Modifier.padding(top = 4.dp)
                 ) {
                     Text(
-                        text = "₹",
+                        text = currencySymbol,
                         style = MaterialTheme.typography.titleLarge.copy(
                             fontWeight = FontWeight.Light,
                             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f)
@@ -815,7 +824,7 @@ fun MetricsSummarySection(
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "₹${"%,.0f".format(currentSaved)} saved of ₹${"%,.0f".format(targetSavings)} target",
+                                    text = "$currencySymbol${"%,.0f".format(currentSaved)} saved of $currencySymbol${"%,.0f".format(targetSavings)} target",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
@@ -852,14 +861,14 @@ fun MetricsSummarySection(
                                         color = MaterialTheme.colorScheme.onSecondaryContainer.copy(alpha = 0.8f)
                                     )
                                     Text(
-                                        text = if (isOverSpent) "Limit Exceeded" else "₹${"%,.0f".format(capLeft)} Left",
+                                        text = if (isOverSpent) "Limit Exceeded" else "$currencySymbol${"%,.0f".format(capLeft)} Left",
                                         style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                         color = capColor
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(4.dp))
                                 Text(
-                                    text = "₹${"%,.0f".format(monthlySpent)} spent of ₹${"%,.0f".format(spendingCap)} limit",
+                                    text = "$currencySymbol${"%,.0f".format(monthlySpent)} spent of $currencySymbol${"%,.0f".format(spendingCap)} limit",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
@@ -897,7 +906,7 @@ fun MetricsSummarySection(
                                 val actualBudgetLimit = if (totalCategoryBudget > 0.0) totalCategoryBudget else 25000.0
                                 val budgetLeft = (actualBudgetLimit - monthlySpent).coerceAtLeast(0.0)
                                 Text(
-                                    text = "₹${"%,.0f".format(budgetLeft)}",
+                                    text = "$currencySymbol${"%,.0f".format(budgetLeft)}",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onPrimaryContainer
                                 )
@@ -921,7 +930,7 @@ fun MetricsSummarySection(
                                 Spacer(modifier = Modifier.height(4.dp))
                                 val dailyAvg = if (monthlySpent > 0) (monthlySpent / 30.0) else 0.0
                                 Text(
-                                    text = "₹${"%,.0f".format(dailyAvg)}",
+                                    text = "$currencySymbol${"%,.0f".format(dailyAvg)}",
                                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                                     color = MaterialTheme.colorScheme.onSecondaryContainer
                                 )
@@ -935,7 +944,7 @@ fun MetricsSummarySection(
 }
 
 @Composable
-fun CategoryBreakdownSection(analytics: AnalyticsState) {
+fun CategoryBreakdownSection(analytics: AnalyticsState, currencySymbol: String) {
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -1021,7 +1030,7 @@ fun CategoryBreakdownSection(analytics: AnalyticsState) {
                     }
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         Text(
-                            text = "₹${usage.amount.toInt()}",
+                            text = "$currencySymbol${usage.amount.toInt()}",
                             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -1085,7 +1094,7 @@ fun PendingReviewCard(
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Text(
-                            text = "₹${item.transaction.amount}",
+                            text = "${getCurrencySymbol(item.transaction.currency)}${item.transaction.amount}",
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -1245,7 +1254,7 @@ fun TransactionListItem(
                 }
                 
                 Text(
-                    text = "$sign ₹${"%,.2f".format(item.transaction.amount)}",
+                    text = "$sign ${getCurrencySymbol(item.transaction.currency)}${"%,.2f".format(item.transaction.amount)}",
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
                     color = amountColor,
                     maxLines = 1
@@ -1272,7 +1281,8 @@ fun TransactionListItem(
 @Composable
 fun SafeToSpendCard(
     allowance: com.ankitsudegora.viewmodel.ForecastAllowance,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    currencySymbol: String
 ) {
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -1371,7 +1381,7 @@ fun SafeToSpendCard(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "₹${"%,.0f".format(allowance.dailyAllowance)}",
+                                text = "$currencySymbol${"%,.0f".format(allowance.dailyAllowance)}",
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.primary
                             )
@@ -1400,7 +1410,7 @@ fun SafeToSpendCard(
                             )
                             Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = "₹${"%,.0f".format(allowance.weeklyAllowance)}",
+                                text = "$currencySymbol${"%,.0f".format(allowance.weeklyAllowance)}",
                                 style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.secondary
                             )
@@ -1409,7 +1419,7 @@ fun SafeToSpendCard(
                 }
 
                 Text(
-                    text = "You have ₹${"%,.0f".format(allowance.dailyAllowance)} left per day for discretionary spending this week to stay on track.",
+                    text = "You have $currencySymbol${"%,.0f".format(allowance.dailyAllowance)} left per day for discretionary spending this week to stay on track.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1428,7 +1438,7 @@ fun SafeToSpendCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "₹${"%,.2f".format(allowance.fixedCommitments)}",
+                    text = "$currencySymbol${"%,.2f".format(allowance.fixedCommitments)}",
                     style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                     color = MaterialTheme.colorScheme.onSurface
                 )
