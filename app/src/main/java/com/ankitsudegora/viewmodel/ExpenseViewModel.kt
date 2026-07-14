@@ -75,6 +75,47 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     private val _autoBackupNight = MutableStateFlow(prefs.getBoolean("auto_backup_night", false))
     val autoBackupNight: StateFlow<Boolean> = _autoBackupNight.asStateFlow()
 
+    private val _isMultiCurrencyEnabled = MutableStateFlow(prefs.getBoolean("multi_currency_enabled", false))
+    val isMultiCurrencyEnabled: StateFlow<Boolean> = _isMultiCurrencyEnabled.asStateFlow()
+
+    private val _primaryCurrency = MutableStateFlow(prefs.getString("primary_currency", "INR") ?: "INR")
+    val primaryCurrency: StateFlow<String> = _primaryCurrency.asStateFlow()
+
+    private val defaultRates = mapOf(
+        "INR" to 1.0,
+        "USD" to 83.5,
+        "EUR" to 90.0,
+        "GBP" to 106.0,
+        "JPY" to 0.52,
+        "AED" to 22.7,
+        "AUD" to 55.0,
+        "CAD" to 61.0,
+        "SGD" to 62.0
+    )
+
+    val exchangeRatesMap: StateFlow<Map<String, Double>> = db.exchangeRateDao().getAllRatesFlow()
+        .map { list ->
+            val map = defaultRates.toMutableMap()
+            list.forEach { rate ->
+                map[rate.baseCurrency.uppercase()] = rate.rate
+            }
+            map
+        }
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), defaultRates)
+
+    fun convertAmount(amount: Double, fromCurrency: String, toCurrency: String): Double {
+        val rates = exchangeRatesMap.value
+        val fromUpper = fromCurrency.uppercase()
+        val toUpper = toCurrency.uppercase()
+        if (fromUpper == toUpper) return amount
+
+        val rateFromToInr = rates[fromUpper] ?: defaultRates[fromUpper] ?: 1.0
+        val rateToToInr = rates[toUpper] ?: defaultRates[toUpper] ?: 1.0
+
+        val amountInInr = amount * rateFromToInr
+        return amountInInr / rateToToInr
+    }
+
     private val _currentTimeMillis = MutableStateFlow(System.currentTimeMillis())
     val currentTimeMillis: StateFlow<Long> = _currentTimeMillis.asStateFlow()
 
@@ -129,15 +170,21 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
     val monthlyCategorySpends: StateFlow<Map<Long, Double>> = combine(
         allTransactions,
         _billingCycleStartDay,
-        _currentTimeMillis
-    ) { txns, startDay, now ->
+        _currentTimeMillis,
+        _primaryCurrency,
+        exchangeRatesMap
+    ) { txns, startDay, now, primCurr, rates ->
         val startOfCycle = getStartOfBillingCycleTimestamp(startDay, now)
         txns.filter {
             !it.transaction.isPending &&
             it.transaction.type == "DEBIT" &&
             it.transaction.timestamp >= startOfCycle
         }.groupBy { it.transaction.categoryId ?: -1L }
-         .mapValues { entry -> entry.value.sumOf { it.transaction.amount } }
+         .mapValues { entry ->
+             entry.value.sumOf {
+                 convertAmount(it.transaction.amount, it.transaction.currency, primCurr)
+             }
+         }
     }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptyMap())
 
     val forecastAllowance: StateFlow<ForecastAllowance> = combine(
@@ -147,7 +194,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         _savingsTargetPct,
         _spendingTargetPct,
         _billingCycleStartDay,
-        _currentTimeMillis
+        _currentTimeMillis,
+        _primaryCurrency,
+        exchangeRatesMap
     ) { array ->
         @Suppress("UNCHECKED_CAST")
         val txns = array[0] as List<TransactionWithCategory>
@@ -158,6 +207,9 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         val spendingPct = array[4] as Int
         val startDay = array[5] as Int
         val now = array[6] as Long
+        val primCurr = array[7] as String
+        @Suppress("UNCHECKED_CAST")
+        val rates = array[8] as Map<String, Double>
 
         if (income <= 0.0) {
             return@combine ForecastAllowance()
@@ -170,18 +222,19 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             it.transaction.type == "DEBIT" &&
             it.transaction.source != "RECURRING" &&
             it.transaction.timestamp >= startOfCycle
-        }.sumOf { it.transaction.amount }
+        }.sumOf { convertAmount(it.transaction.amount, it.transaction.currency, primCurr) }
         
         val targetSavings = income * (savingsPct / 100.0)
         val spendingCap = income * (spendingPct / 100.0)
         
         val rawFixedCommitments = schedules.filter { it.isActive }.sumOf { s ->
+            val convertedAmt = convertAmount(s.amount, s.currency, primCurr)
             when (s.frequency.uppercase()) {
-                "DAILY" -> s.amount * 30.0
-                "WEEKLY" -> s.amount * 4.33
-                "MONTHLY" -> s.amount
-                "YEARLY" -> s.amount / 12.0
-                else -> s.amount
+                "DAILY" -> convertedAmt * 30.0
+                "WEEKLY" -> convertedAmt * 4.33
+                "MONTHLY" -> convertedAmt
+                "YEARLY" -> convertedAmt / 12.0
+                else -> convertedAmt
             }
         }
 
@@ -190,7 +243,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             it.transaction.type == "DEBIT" &&
             it.transaction.source == "RECURRING" &&
             it.transaction.timestamp >= startOfCycle
-        }.sumOf { it.transaction.amount }
+        }.sumOf { convertAmount(it.transaction.amount, it.transaction.currency, primCurr) }
 
         val fixedCommitments = (rawFixedCommitments - realizedRecurring).coerceAtLeast(0.0)
         val discretionarySpendingCap = (spendingCap - rawFixedCommitments).coerceAtLeast(0.0)
@@ -232,10 +285,28 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         prefs.edit().putBoolean("auto_backup_night", enabled).apply()
     }
 
+    fun updateMultiCurrencyEnabled(enabled: Boolean) {
+        _isMultiCurrencyEnabled.value = enabled
+        prefs.edit().putBoolean("multi_currency_enabled", enabled).apply()
+        if (enabled) {
+            com.ankitsudegora.worker.ExchangeRateSyncWorker.scheduleDailySync(getApplication(), forceRestart = true)
+        } else {
+            com.ankitsudegora.worker.ExchangeRateSyncWorker.cancelDailySync(getApplication())
+        }
+    }
+
+    fun updatePrimaryCurrency(currency: String) {
+        _primaryCurrency.value = currency
+        prefs.edit().putString("primary_currency", currency).apply()
+    }
+
     init {
         // Core Bug Resolution: pass forceRestart = false on startup init tasks to preserve queue timers
         if (_onboardingState.value == OnboardingState.Completed) {
             setupWorkReminder(forceRestart = false)
+            if (_isMultiCurrencyEnabled.value) {
+                com.ankitsudegora.worker.ExchangeRateSyncWorker.scheduleDailySync(getApplication(), forceRestart = false)
+            }
         }
         viewModelScope.launch {
             processRecurringSchedules()
@@ -267,7 +338,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     paymentMethod = s.paymentMethod,
                     isPending = true,
                     source = "RECURRING",
-                    subCategory = s.subCategory
+                    subCategory = s.subCategory,
+                    currency = s.currency
                 )
                 repository.insertTransaction(transaction)
 
@@ -408,7 +480,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         notes: String?,
         paymentMethod: String,
         frequency: String,
-        subCategory: String? = null
+        subCategory: String? = null,
+        currency: String = "INR"
     ) {
         viewModelScope.launch {
             val now = System.currentTimeMillis()
@@ -424,7 +497,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 lastTriggered = now,
                 nextTriggerTime = nextTime,
                 isActive = true,
-                subCategory = subCategory
+                subCategory = subCategory,
+                currency = currency
             )
             repository.insertSchedule(schedule)
             processRecurringSchedules()
@@ -456,7 +530,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         subCategory: String? = null,
         paidViaCcId: Long? = null,
         repaidCcId: Long? = null,
-        selectedRepaidTxnIds: List<Long> = emptyList()
+        selectedRepaidTxnIds: List<Long> = emptyList(),
+        currency: String = "INR"
     ) {
         viewModelScope.launch {
             val transaction = Transaction(
@@ -470,7 +545,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 isPending = false,
                 source = if (!recurringFrequency.isNullOrEmpty()) "RECURRING" else "MANUAL",
                 subCategory = subCategory,
-                paidViaCcId = paidViaCcId
+                paidViaCcId = paidViaCcId,
+                currency = currency
             )
             val repaymentTxnId = repository.insertTransaction(transaction)
 
@@ -487,7 +563,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     notes = notes,
                     paymentMethod = paymentMethod,
                     frequency = recurringFrequency,
-                    subCategory = subCategory
+                    subCategory = subCategory,
+                    currency = currency
                 )
             }
 
@@ -983,7 +1060,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                     timestamp = System.currentTimeMillis(),
                     paymentMethod = paymentMethod,
                     source = "MANUAL",
-                    linkedListId = listWithItems.plannedList.id
+                    linkedListId = listWithItems.plannedList.id,
+                    currency = primaryCurrency.value
                 )
                 repository.insertTransaction(transaction)
                 if (categoryId != null) {
@@ -1043,7 +1121,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                         timestamp = System.currentTimeMillis(),
                         paymentMethod = "UPI",
                         source = "MANUAL",
-                        linkedListId = listId
+                        linkedListId = listId,
+                        currency = primaryCurrency.value
                     )
                     repository.insertTransaction(newTxn)
                 }
@@ -1070,7 +1149,8 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 timestamp = System.currentTimeMillis(),
                 paymentMethod = "UPI",
                 source = "MANUAL",
-                ccRepaymentId = null
+                ccRepaymentId = null,
+                currency = primaryCurrency.value
             )
             val repaymentId = repository.insertTransaction(transaction)
             if (selectedTxnIds.isNotEmpty()) {

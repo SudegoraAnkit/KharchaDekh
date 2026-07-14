@@ -158,6 +158,8 @@ class MainActivity : ComponentActivity() {
         val forecastAllowance by viewModel.forecastAllowance.collectAsStateWithLifecycle()
         val creditCards by viewModel.allCreditCards.collectAsStateWithLifecycle()
         val plannedLists by viewModel.allPlannedLists.collectAsStateWithLifecycle()
+        val isMultiCurrencyEnabled by viewModel.isMultiCurrencyEnabled.collectAsStateWithLifecycle()
+        val primaryCurrency by viewModel.primaryCurrency.collectAsStateWithLifecycle()
         
         // Collect active recurring schedules Flow
         val recurringSchedules by viewModel.allSchedules.collectAsStateWithLifecycle(initialValue = emptyList())
@@ -304,7 +306,9 @@ class MainActivity : ComponentActivity() {
                                 onSettingsClicked = { currentTab = AppTab.SETTINGS },
                                 billingCycleStartDay = billingCycleStartDay,
                                 onExportCsvCalendar = { txns -> performExportCsv(txns) },
-                                onExportPdfCalendar = { txns -> performExportPdf(txns) }
+                                onExportPdfCalendar = { txns -> performExportPdf(txns) },
+                                primaryCurrency = primaryCurrency,
+                                onConvertAmount = { amount, fromCurrency -> viewModel.convertAmount(amount, fromCurrency, primaryCurrency) }
                             )
                         }
                         AppTab.CALENDAR -> {
@@ -316,8 +320,10 @@ class MainActivity : ComponentActivity() {
                                 categories = categories,
                                 creditCards = creditCards,
                                 allTransactions = allTransactions,
-                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds ->
-                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds)
+                                isMultiCurrencyEnabled = isMultiCurrencyEnabled,
+                                primaryCurrency = primaryCurrency,
+                                onSaveTransaction = { amount, type, merchant, catId, notes, method, date, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds, currency ->
+                                    viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds, currency)
                                     currentTab = AppTab.DASHBOARD // navigate back automatically
                                 },
                                 onNavigateBack = { currentTab = AppTab.DASHBOARD }
@@ -357,7 +363,11 @@ class MainActivity : ComponentActivity() {
                                 onNavigateToCategories = { currentTab = AppTab.CATEGORIES },
                                 creditCards = creditCards,
                                 onAddCreditCard = { name -> viewModel.addCreditCard(name) },
-                                onDeleteCreditCard = { card -> viewModel.deleteCreditCard(card) }
+                                onDeleteCreditCard = { card -> viewModel.deleteCreditCard(card) },
+                                isMultiCurrencyEnabled = isMultiCurrencyEnabled,
+                                onToggleMultiCurrency = { enabled -> viewModel.updateMultiCurrencyEnabled(enabled) },
+                                primaryCurrency = primaryCurrency,
+                                onUpdatePrimaryCurrency = { currency -> viewModel.updatePrimaryCurrency(currency) }
                             )
                         }
                         AppTab.PLANNED_LISTS -> {

@@ -64,7 +64,11 @@ fun SettingsScreen(
     onNavigateToCategories: () -> Unit,
     creditCards: List<CreditCard>,
     onAddCreditCard: (String) -> Unit,
-    onDeleteCreditCard: (CreditCard) -> Unit
+    onDeleteCreditCard: (CreditCard) -> Unit,
+    isMultiCurrencyEnabled: Boolean,
+    onToggleMultiCurrency: (Boolean) -> Unit,
+    primaryCurrency: String,
+    onUpdatePrimaryCurrency: (String) -> Unit
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
@@ -500,6 +504,118 @@ fun SettingsScreen(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.secondary
                 )
+            }
+        }
+
+        // Currency Settings Card
+        Card(
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+            ),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.MonetizationOn,
+                        contentDescription = "Currency Settings",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Currency Settings",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+                }
+
+                Text(
+                    text = "Track expenses in multiple currencies. Budgets, goals, and analytics convert automatically to your primary currency.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Enable Multi-Currency",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "Allows selecting custom currencies for transactions.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Switch(
+                        checked = isMultiCurrencyEnabled,
+                        onCheckedChange = onToggleMultiCurrency
+                    )
+                }
+
+                HorizontalDivider(modifier = Modifier.padding(vertical = 4.dp), color = MaterialTheme.colorScheme.outlineVariant)
+
+                var currencyDropdownExpanded by remember { mutableStateOf(false) }
+                val currencies = listOf("INR", "USD", "EUR", "GBP", "JPY", "AED", "AUD", "CAD", "SGD")
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column {
+                        Text(
+                            text = "Primary Currency",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                        Text(
+                            text = "Used for reports, budgets, and dashboards.",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    
+                    Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
+                        Button(
+                            onClick = { currencyDropdownExpanded = true },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                contentColor = MaterialTheme.colorScheme.onPrimaryContainer
+                            ),
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp)
+                        ) {
+                            Text(
+                                text = primaryCurrency,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                            )
+                        }
+                        
+                        DropdownMenu(
+                            expanded = currencyDropdownExpanded,
+                            onDismissRequest = { currencyDropdownExpanded = false }
+                        ) {
+                            currencies.forEach { curr ->
+                                DropdownMenuItem(
+                                    text = { Text(curr, fontWeight = FontWeight.SemiBold) },
+                                    onClick = {
+                                        onUpdatePrimaryCurrency(curr)
+                                        currencyDropdownExpanded = false
+                                    }
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 

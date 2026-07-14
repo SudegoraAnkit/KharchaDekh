@@ -1,5 +1,6 @@
 package com.ankitsudegora.ui.screens
 
+import kotlin.math.absoluteValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.tween
@@ -117,8 +118,11 @@ fun getCycleLabel(cycleOffset: Int): String {
 fun ChartsScreen(
     analytics: AnalyticsState,
     allTransactions: List<TransactionWithCategory>,
-    billingCycleStartDay: Int
+    billingCycleStartDay: Int,
+    primaryCurrency: String,
+    onConvertAmount: (Double, String) -> Double
 ) {
+    val currencySymbol = remember(primaryCurrency) { getCurrencySymbol(primaryCurrency) }
     var selectedCycleOffset by remember { mutableStateOf(0) } // 0 = current, -1 = prev, ..., -100 = All Time
     var selectedCategoryFilter by remember { mutableStateOf<Category?>(null) } // null = all inflow/outflow
     
@@ -158,25 +162,26 @@ fun ChartsScreen(
     }
 
     // 3. Compute active cycle metrics
-    val cycleInflow = remember(cycleTxns) {
-        cycleTxns.filter { it.transaction.type == "CREDIT" }.sumOf { it.transaction.amount }
+    val cycleInflow = remember(cycleTxns, primaryCurrency) {
+        cycleTxns.filter { it.transaction.type == "CREDIT" }.sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
     }
     
-    val cycleOutflow = remember(cycleTxns) {
+    val cycleOutflow = remember(cycleTxns, primaryCurrency) {
         cycleTxns.filter { 
             it.transaction.type == "DEBIT" && 
             it.category?.name != "CreditCard Payment" 
-        }.sumOf { it.transaction.amount }
+        }.sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
     }
 
-    val cycleBreakdown = remember(cycleTxns, cycleOutflow) {
+    val cycleBreakdown = remember(cycleTxns, cycleOutflow, primaryCurrency) {
         val categoryMap = mutableMapOf<Category, Double>()
         cycleTxns.filter { 
             it.transaction.type == "DEBIT" && 
             it.category?.name != "CreditCard Payment" 
         }.forEach { item ->
             val cat = item.category ?: Category(name = "Uncategorized", iconResName = "category")
-            categoryMap[cat] = categoryMap.getOrDefault(cat, 0.0) + item.transaction.amount
+            val converted = onConvertAmount(item.transaction.amount, item.transaction.currency)
+            categoryMap[cat] = categoryMap.getOrDefault(cat, 0.0) + converted
         }
         categoryMap.map { (cat, amount) ->
             CategoryUsage(
@@ -188,7 +193,7 @@ fun ChartsScreen(
     }
 
     // 4. Calculate trend chart values (last 6 billing cycles)
-    val monthlyData = remember(allTransactions, billingCycleStartDay) {
+    val monthlyData = remember(allTransactions, billingCycleStartDay, primaryCurrency) {
         val result = mutableListOf<MonthlyCashFlow>()
         for (i in 5 downTo 0) {
             val range = getBillingCycleRange(billingCycleStartDay, -i, now)
@@ -200,7 +205,7 @@ fun ChartsScreen(
             var inflow = 0.0
             var outflow = 0.0
             txnsInCycle.forEach { item ->
-                val amt = item.transaction.amount
+                val amt = onConvertAmount(item.transaction.amount, item.transaction.currency)
                 if (item.transaction.type == "CREDIT") {
                     inflow += amt
                 } else if (item.transaction.type == "DEBIT" && item.category?.name != "CreditCard Payment") {
@@ -215,7 +220,7 @@ fun ChartsScreen(
     }
 
     // 5. Calculate monthly category trend values if a specific category is filtered
-    val categoryTrendData = remember(allTransactions, selectedCategoryFilter, billingCycleStartDay) {
+    val categoryTrendData = remember(allTransactions, selectedCategoryFilter, billingCycleStartDay, primaryCurrency) {
         val result = mutableListOf<CategoryTrendPoint>()
         val cat = selectedCategoryFilter ?: return@remember emptyList<CategoryTrendPoint>()
         for (i in 5 downTo 0) {
@@ -226,7 +231,7 @@ fun ChartsScreen(
                 item.transaction.timestamp < range.second &&
                 item.transaction.type == "DEBIT" &&
                 item.category?.id == cat.id
-            }.sumOf { it.transaction.amount }
+            }.sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
             
             val cal = Calendar.getInstance().apply { timeInMillis = range.first }
             val label = SimpleDateFormat("MMM", Locale.getDefault()).format(cal.time)
@@ -264,7 +269,8 @@ fun ChartsScreen(
             CycleSummaryCard(
                 inflow = cycleInflow,
                 outflow = cycleOutflow,
-                offset = selectedCycleOffset
+                offset = selectedCycleOffset,
+                currencySymbol = currencySymbol
             )
         }
 
@@ -278,7 +284,9 @@ fun ChartsScreen(
                 billingCycleStartDay = billingCycleStartDay,
                 now = now,
                 allTransactions = allTransactions,
-                animationProgress = animationProgress.value
+                animationProgress = animationProgress.value,
+                currencySymbol = currencySymbol,
+                onConvertAmount = onConvertAmount
             )
         }
 
@@ -420,10 +428,11 @@ fun CycleSelectorCard(
 fun CycleSummaryCard(
     inflow: Double,
     outflow: Double,
-    offset: Int
+    offset: Int,
+    currencySymbol: String
 ) {
-    val netBalance = inflow - outflow
-    val isSaving = netBalance >= 0.0
+    val netBalance = (inflow - outflow).absoluteValue
+    val isSaving = inflow >= outflow
     val savedColor = if (isSaving) Color(0xFF4CAF50) else Color(0xFFEF5350)
 
     Card(
@@ -447,7 +456,7 @@ fun CycleSummaryCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "₹${"%,.0f".format(inflow)}",
+                    text = "$currencySymbol${"%,.0f".format(inflow)}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = Color(0xFF4CAF50)
                 )
@@ -467,7 +476,7 @@ fun CycleSummaryCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "₹${"%,.0f".format(outflow)}",
+                    text = "$currencySymbol${"%,.0f".format(outflow)}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = Color(0xFFEF5350)
                 )
@@ -487,7 +496,7 @@ fun CycleSummaryCard(
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
                 Text(
-                    text = "${if (isSaving) "+" else ""}₹${"%,.0f".format(netBalance)}",
+                    text = "${if (isSaving) "+" else "-"}$currencySymbol${"%,.0f".format(netBalance)}",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                     color = savedColor
                 )
@@ -505,7 +514,9 @@ fun DoughnutChartCard(
     billingCycleStartDay: Int,
     now: Long,
     allTransactions: List<TransactionWithCategory>,
-    animationProgress: Float
+    animationProgress: Float,
+    currencySymbol: String,
+    onConvertAmount: (Double, String) -> Double
 ) {
     val chartColors = listOf(
         Color(0xFF42A5F5), Color(0xFFAB47BC), Color(0xFFFF7043),
@@ -580,7 +591,7 @@ fun DoughnutChartCard(
                             color = MaterialTheme.colorScheme.onSurfaceVariant
                         )
                         Text(
-                            text = "₹${"%,.0f".format(outflow)}",
+                            text = "$currencySymbol${"%,.0f".format(outflow)}",
                             style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -608,7 +619,9 @@ fun DoughnutChartCard(
                             cycleTxns = cycleTxns,
                             billingCycleStartDay = billingCycleStartDay,
                             now = now,
-                            allTransactions = allTransactions
+                            allTransactions = allTransactions,
+                            currencySymbol = currencySymbol,
+                            onConvertAmount = onConvertAmount
                         )
                     }
                 }
@@ -626,7 +639,9 @@ fun CategoryRowItem(
     cycleTxns: List<TransactionWithCategory>,
     billingCycleStartDay: Int,
     now: Long,
-    allTransactions: List<TransactionWithCategory>
+    allTransactions: List<TransactionWithCategory>,
+    currencySymbol: String,
+    onConvertAmount: (Double, String) -> Double
 ) {
     val categoryTxns = remember(cycleTxns, usage.category) {
         cycleTxns.filter { 
@@ -649,7 +664,7 @@ fun CategoryRowItem(
                 item.transaction.timestamp < range.second &&
                 item.transaction.type == "DEBIT" &&
                 item.category?.id == usage.category.id
-            }.sumOf { it.transaction.amount }
+            }.sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
             trendPoints.add(amt)
         }
         trendPoints
@@ -698,7 +713,7 @@ fun CategoryRowItem(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
-                        text = "₹${"%,.0f".format(usage.amount)}",
+                        text = "$currencySymbol${"%,.0f".format(usage.amount)}",
                         style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                         color = MaterialTheme.colorScheme.onSurface
                     )
@@ -747,7 +762,7 @@ fun CategoryRowItem(
                         }
                         Column(horizontalAlignment = Alignment.End) {
                             Text("Avg. Expense size", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline)
-                            Text("₹${"%,.0f".format(averageSpend)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                            Text("$currencySymbol${"%,.0f".format(averageSpend)}", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
                         }
                     }
 
@@ -830,7 +845,7 @@ fun CategoryRowItem(
                                         )
                                     }
                                     Text(
-                                        text = "₹${"%,.0f".format(txn.transaction.amount)}",
+                                        text = "${getCurrencySymbol(txn.transaction.currency)}${"%,.0f".format(txn.transaction.amount)}",
                                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
                                         color = MaterialTheme.colorScheme.onSurface
                                     )

@@ -99,4 +99,11 @@ class SemanticTransactionParserTest {
         assertEquals("DEBIT", parsed2.type)
         assertEquals("TeaShop", parsed2.merchant)
     }
+
+    @Test
+    fun parse_airtelMobileBillGenerated_returnsNull() {
+        val text = "Hi Ankit, The Bill for your airtel mobile is generated. Amount to be paid 728 INR due date something"
+        val parsed = SemanticTransactionParser.parse("Airtel", text)
+        assertNull(parsed)
+    }
 }

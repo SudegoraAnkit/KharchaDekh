@@ -122,6 +122,15 @@ object SemanticTransactionParser {
             return null
         }
 
+        // Reject billing, due, statement, or invoice notifications (not finalized transactions)
+        if (cleanText.contains("due date") || cleanText.contains("due on") || 
+            cleanText.contains("to be paid") || cleanText.contains("bill generated") ||
+            cleanText.contains("amount due") || cleanText.contains("minimum due") ||
+            cleanText.contains("overdue") || cleanText.contains("statement of") ||
+            cleanText.contains("statement for") || (cleanText.contains("generated") && cleanText.contains("bill"))) {
+            return null
+        }
+
         // Reject promotional, offer, cashback, or discount messages
         if (cleanText.contains("offer") || cleanText.contains("cashback") || cleanText.contains("coupon") || 
             cleanText.contains("promo") || cleanText.contains("voucher") || cleanText.contains("discount") || 
