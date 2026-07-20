@@ -913,7 +913,6 @@ fun PlannedDetailScreen(
                                     onUpdateQty = { qty -> onUpdateItem(item.copy(quantity = qty)) }
                                 )
                             }
-                        }
                     }
                 }
             }
