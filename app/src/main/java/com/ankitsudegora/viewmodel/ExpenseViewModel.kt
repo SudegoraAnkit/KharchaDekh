@@ -1104,6 +1104,19 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         return repository.getTransactionByLinkedListId(listId)
     }
 
+    suspend fun getTransactionsByLinkedListId(listId: Long): List<Transaction> {
+        return repository.getTransactionsByLinkedListId(listId)
+    }
+
+    fun updateTransactionAmount(transactionId: Long, newAmount: Double) {
+        viewModelScope.launch {
+            val transaction = repository.getTransactionById(transactionId)
+            if (transaction != null) {
+                repository.updateTransaction(transaction.copy(amount = newAmount))
+            }
+        }
+    }
+
     fun updateTransactionAmountByLinkedListId(listId: Long, newAmount: Double) {
         viewModelScope.launch {
             val transaction = repository.getTransactionByLinkedListId(listId)
@@ -1155,6 +1168,24 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             val repaymentId = repository.insertTransaction(transaction)
             if (selectedTxnIds.isNotEmpty()) {
                 repository.updateCcRepaymentIdForTransactions(repaymentId, selectedTxnIds)
+            }
+        }
+    }
+
+    fun unlinkTransactionFromPlannedList(txnId: Long) {
+        viewModelScope.launch {
+            val transaction = repository.getTransactionById(txnId)
+            if (transaction != null) {
+                repository.updateTransaction(transaction.copy(linkedListId = null))
+            }
+        }
+    }
+
+    fun linkTransactionToPlannedList(txnId: Long, listId: Long) {
+        viewModelScope.launch {
+            val transaction = repository.getTransactionById(txnId)
+            if (transaction != null) {
+                repository.updateTransaction(transaction.copy(linkedListId = listId, isPending = false))
             }
         }
     }

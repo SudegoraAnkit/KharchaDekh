@@ -133,4 +133,8 @@ class ExpenseRepository(
     suspend fun getTransactionByLinkedListId(listId: Long): Transaction? {
         return transactionDao.getTransactionByLinkedListId(listId)
     }
+
+    suspend fun getTransactionsByLinkedListId(listId: Long): List<Transaction> {
+        return transactionDao.getTransactionsByLinkedListId(listId)
+    }
 }
