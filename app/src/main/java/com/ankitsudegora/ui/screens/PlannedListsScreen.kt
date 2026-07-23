@@ -1503,6 +1503,7 @@ fun LinkedTransactionsSection(
     onUnlinkTransaction: (Long) -> Unit,
     onLinkAnotherClick: () -> Unit
 ) {
+    val formatter = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
     Card(
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(
@@ -1570,7 +1571,6 @@ fun LinkedTransactionsSection(
                                 style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                 color = MaterialTheme.colorScheme.onSurface
                             )
-                            val formatter = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
                             Text(
                                 text = formatter.format(Date(txn.timestamp)),
                                 style = MaterialTheme.typography.bodySmall,
