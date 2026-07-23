@@ -569,7 +569,7 @@ fun PlannedDetailScreen(
     val isCompleted = listWithItems.plannedList.status == "COMPLETED"
 
     var linkedTransactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
-    LaunchedEffect(listId, linkedTransactions) {
+    LaunchedEffect(listId) {
         linkedTransactions = onGetTransactionsByLinkedListId(listId)
     }
 
@@ -861,6 +861,7 @@ fun PlannedDetailScreen(
                                     },
                                     onUnlinkTransaction = { txnId ->
                                         onUnlinkTransaction(txnId)
+                                        linkedTransactions = linkedTransactions.filter { it.id != txnId }
                                     },
                                     onLinkAnotherClick = {
                                         showLinkAlertSelectionDialog = true
