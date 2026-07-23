@@ -1,5 +1,6 @@
 package com.ankitsudegora.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -844,7 +845,8 @@ fun PlannedDetailScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant
                     )
-                } else {
+                }
+            } else {
                     LazyColumn(
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                         modifier = Modifier.weight(1f)
