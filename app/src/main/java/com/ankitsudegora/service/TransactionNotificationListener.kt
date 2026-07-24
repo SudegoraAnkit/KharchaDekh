@@ -93,17 +93,18 @@ class TransactionNotificationListener : NotificationListenerService() {
                     source = "NOTIFICATION",
                     smsSenderId = parsed.sender,
                     timestamp = System.currentTimeMillis(),
-                    refNumber = parsed.refNumber
+                    refNumber = parsed.refNumber,
+                    notes = text
                 )
                 val id = db.transactionDao().insertTransaction(transaction)
                 Log.d("TxnNotification", "Saved notification transaction with ID: $id")
 
-                showEnrichmentNotification(applicationContext, id, parsed)
+                showEnrichmentNotification(applicationContext, id, parsed, text)
             }
         }
     }
 
-    private fun showEnrichmentNotification(context: Context, txnId: Long, parsed: ParsedTransaction) {
+    private fun showEnrichmentNotification(context: Context, txnId: Long, parsed: ParsedTransaction, rawText: String) {
         val notificationManager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val channelId = "kharchadekh_notifications"
 
@@ -131,6 +132,37 @@ class TransactionNotificationListener : NotificationListenerService() {
 
         val pendingIntent = PendingIntent.getActivity(context, txnId.toInt(), intent, flags)
 
+        // Review Later Action (Dismisses the notification)
+        val reviewLaterIntent = Intent(context, TransactionActionReceiver::class.java).apply {
+            action = TransactionActionReceiver.ACTION_REVIEW_LATER
+            putExtra(TransactionActionReceiver.EXTRA_NOTIFICATION_ID, txnId.toInt())
+        }
+        val reviewLaterPendingIntent = PendingIntent.getBroadcast(
+            context,
+            txnId.toInt() * 10 + 1,
+            reviewLaterIntent,
+            flags
+        )
+
+        // Discard Action (Deletes from DB and shows Undo notification)
+        val discardIntent = Intent(context, TransactionActionReceiver::class.java).apply {
+            action = TransactionActionReceiver.ACTION_DISCARD
+            putExtra(TransactionActionReceiver.EXTRA_TRANSACTION_ID, txnId)
+            putExtra(TransactionActionReceiver.EXTRA_NOTIFICATION_ID, txnId.toInt())
+            putExtra(TransactionActionReceiver.EXTRA_AMOUNT, parsed.amount)
+            putExtra(TransactionActionReceiver.EXTRA_TYPE, parsed.type)
+            putExtra(TransactionActionReceiver.EXTRA_MERCHANT, parsed.merchant)
+            putExtra(TransactionActionReceiver.EXTRA_REF_NUMBER, parsed.refNumber)
+            putExtra(TransactionActionReceiver.EXTRA_SMS_SENDER_ID, parsed.sender)
+            putExtra(TransactionActionReceiver.EXTRA_NOTES, rawText)
+        }
+        val discardPendingIntent = PendingIntent.getBroadcast(
+            context,
+            txnId.toInt() * 10 + 2,
+            discardIntent,
+            flags
+        )
+
         val emoji = if (parsed.type == "DEBIT") "💸" else "🏦"
         val label = if (parsed.type == "DEBIT") "Spent" else "Received"
         
@@ -143,6 +175,8 @@ class TransactionNotificationListener : NotificationListenerService() {
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setAutoCancel(true)
             .setContentIntent(pendingIntent)
+            .addAction(0, "Review Later", reviewLaterPendingIntent)
+            .addAction(0, "Discard Alert", discardPendingIntent)
             .build()
 
         notificationManager.notify(txnId.toInt(), notification)

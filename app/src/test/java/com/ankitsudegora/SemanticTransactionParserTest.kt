@@ -106,4 +106,17 @@ class SemanticTransactionParserTest {
         val parsed = SemanticTransactionParser.parse("Airtel", text)
         assertNull(parsed)
     }
+
+    @Test
+    fun parse_complexMerchantText_extractsMerchantCorrectly() {
+        val text = "Rs. 250 debited from A/c XX1234 to paytm-1234@paytm (UPI Ref 123456789012)"
+        val parsed = SemanticTransactionParser.parse("UPI Alert", text)
+        assertNotNull(parsed)
+        assertEquals("Paytm", parsed?.merchant)
+
+        val creditText = "Your A/c XX5678 has been credited by Rs. 1500 from Ramesh Kumar"
+        val parsedCredit = SemanticTransactionParser.parse("Bank Alert", creditText)
+        assertNotNull(parsedCredit)
+        assertEquals("Ramesh Kumar", parsedCredit?.merchant)
+    }
 }

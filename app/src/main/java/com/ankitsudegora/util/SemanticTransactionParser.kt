@@ -176,18 +176,93 @@ object SemanticTransactionParser {
             }
         }
 
-        // 5. Extract Merchant
-        val merchantRegex = Regex("(?:at|to|from|vpa|into|thru)\\s+([a-zA-Z0-9\\s.]{3,20})", RegexOption.IGNORE_CASE)
-        val merchantMatch = merchantRegex.find(text)
-        var merchant = merchantMatch?.groupValues?.get(1)?.trim() ?: ""
-        
-        // Clean up merchant strings that contain garbage words or only digits
-        if (merchant.isBlank() || merchant.all { it.isDigit() } || merchant.lowercase(Locale.ROOT) == "your") {
+        // 5. Extract Merchant using semantic patterns
+        var merchant = ""
+        val cleanTextForMerchant = text.lowercase(Locale.ROOT)
+
+        // Helper list of generic bank/account terms to reject as merchants
+        val ignoredTerms = setOf(
+            "a/c", "acct", "account", "bank", "card", "debit", "credit", "upi", "vpa", "xx", "no.", "number",
+            "saving", "savings", "current", "wallet", "cashback", "alert", "otp", "notification"
+        )
+
+        fun cleanAndValidateMerchant(candidate: String): String? {
+            var name = candidate.trim()
+            if (name.isBlank()) return null
+            
+            // Clean common VPA/reference suffixes
+            name = name.split("/")[0].split("-")[0].split("@")[0].split(".")[0].trim()
+            name = name.replace(Regex("[^a-zA-Z0-9\\s]+$"), "").trim() // Strip trailing punctuation
+            
+            val lowerName = name.lowercase(Locale.ROOT)
+            
+            // If it consists entirely of digits, it's not a merchant name (e.g. account numbers or ref numbers)
+            if (name.all { it.isDigit() }) return null
+            
+            // If it starts with generic terms like "a/c", "account", or matches ignored terms, reject
+            val words = lowerName.split(" ").filter { it.isNotBlank() }
+            if (words.isEmpty()) return null
+            if (words[0] in ignoredTerms || (words.size > 1 && words[0] == "your" && words[1] in ignoredTerms)) {
+                return null
+            }
+            
+            // If the name is too short or is an account mask (e.g. xx1234)
+            if (lowerName.contains(Regex("xx+\\d+")) || lowerName.contains(Regex("x{3,}"))) {
+                return null
+            }
+
+            return name.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
+        }
+
+        if (type == "DEBIT") {
+            // Priority patterns for debit
+            val patterns = listOf(
+                Regex("(?:paid|sent|transfer(?:red)?|txn|pay|payment)\\s+to\\s+([a-zA-Z0-9\\s.]{3,30})", RegexOption.IGNORE_CASE),
+                Regex("at\\s+([a-zA-Z0-9\\s.]{3,30})", RegexOption.IGNORE_CASE),
+                Regex("(?:vpa|to\\s+vpa)\\s+([a-zA-Z0-9\\s.@]{3,35})", RegexOption.IGNORE_CASE),
+                Regex("to\\s+([a-zA-Z0-9\\s.]{3,30})", RegexOption.IGNORE_CASE) // Fallback generic "to"
+            )
+            for (pattern in patterns) {
+                val match = pattern.find(text)
+                if (match != null) {
+                    val candidate = match.groupValues[1]
+                    val cleaned = cleanAndValidateMerchant(candidate)
+                    if (cleaned != null) {
+                        merchant = cleaned
+                        break
+                    }
+                }
+            }
+        } else { // CREDIT
+            // Priority patterns for credit
+            val patterns = listOf(
+                Regex("(?:received|credited|transfer(?:red)?|remittance|refund)\\s+from\\s+([a-zA-Z0-9\\s.]{3,30})", RegexOption.IGNORE_CASE),
+                Regex("from\\s+([a-zA-Z0-9\\s.]{3,30})", RegexOption.IGNORE_CASE),
+                Regex("credited\\s+by\\s+([a-zA-Z0-9\\s.]{3,30})", RegexOption.IGNORE_CASE),
+                Regex("by\\s+([a-zA-Z0-9\\s.]{3,30})", RegexOption.IGNORE_CASE) // Fallback generic "by"
+            )
+            for (pattern in patterns) {
+                val match = pattern.find(text)
+                if (match != null) {
+                    val candidate = match.groupValues[1]
+                    val cleaned = cleanAndValidateMerchant(candidate)
+                    if (cleaned != null) {
+                        merchant = cleaned
+                        break
+                    }
+                }
+            }
+        }
+
+        // If no merchant was extracted cleanly, fallback to the sender ID/Title (excluding bank name prefixes)
+        if (merchant.isBlank()) {
             merchant = title.ifBlank { "Unknown Merchant" }
-        } else {
-            // Trim trailing punctuation or details
-            merchant = merchant.split("/")[0].split(" ")[0].trim()
-            merchant = merchant.replace(Regex("[^a-zA-Z0-9]+$"), "") // Strip trailing punctuation (like dots or commas)
+            if (merchant.contains(Regex("[a-zA-Z]{2}-[a-zA-Z]+", RegexOption.IGNORE_CASE))) {
+                val parts = merchant.split("-")
+                if (parts.size > 1) {
+                    merchant = parts[1].replace(Regex("bk$|bank$", RegexOption.IGNORE_CASE), "")
+                }
+            }
             merchant = merchant.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.ROOT) else it.toString() }
         }
 

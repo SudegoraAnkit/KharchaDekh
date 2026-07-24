@@ -4,6 +4,9 @@ import androidx.activity.compose.BackHandler
 import java.text.SimpleDateFormat
 import java.util.Locale
 import java.util.Date
+import android.content.Intent
+import android.util.Log
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -22,7 +25,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -819,6 +824,129 @@ fun EnrichmentScreen(
         }
 
         Spacer(modifier = Modifier.height(8.dp))
+
+        // SMS / original notification alert card details
+        val context = LocalContext.current
+        var showSmsDetailDialog by remember { mutableStateOf(false) }
+        
+        val isSmsSource = remember(existingTransaction) {
+            existingTransaction?.source == "NOTIFICATION" || existingTransaction?.smsSenderId != null
+        }
+        val rawSmsText = remember(existingTransaction) {
+            existingTransaction?.notes
+        }
+
+        if (isSmsSource && !rawSmsText.isNullOrBlank()) {
+            Card(
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                ),
+                onClick = { showSmsDetailDialog = true },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+            ) {
+                Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.Message,
+                        contentDescription = "SMS",
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "Original Bank Notification / SMS",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = rawSmsText,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.AutoMirrored.Filled.OpenInNew,
+                        contentDescription = "Expand",
+                        tint = MaterialTheme.colorScheme.secondary,
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+
+            if (showSmsDetailDialog) {
+                AlertDialog(
+                    onDismissRequest = { showSmsDetailDialog = false },
+                    title = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Message, null, tint = MaterialTheme.colorScheme.primary)
+                            Text("Transaction SMS Details")
+                        }
+                    },
+                    text = {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Text(
+                                text = "From: ${existingTransaction?.smsSenderId ?: "System notification"}",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.secondary
+                            )
+                            Card(
+                                shape = RoundedCornerShape(8.dp),
+                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+                                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = rawSmsText,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    modifier = Modifier.padding(12.dp)
+                                )
+                            }
+                        }
+                    },
+                    confirmButton = {
+                        TextButton(
+                            onClick = {
+                                val intent = Intent(Intent.ACTION_MAIN).apply {
+                                    addCategory(Intent.CATEGORY_APP_MESSAGING)
+                                }
+                                try {
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    val fallbackIntent = Intent(Intent.ACTION_VIEW).apply {
+                                        type = "vnd.android-dir/mms-sms"
+                                    }
+                                    try {
+                                        context.startActivity(fallbackIntent)
+                                    } catch (ex: Exception) {
+                                        Log.e("EnrichmentScreen", "Failed to launch SMS app", ex)
+                                    }
+                                }
+                                showSmsDetailDialog = false
+                            }
+                        ) {
+                            Text("Open SMS App")
+                        }
+                    },
+                    dismissButton = {
+                        TextButton(onClick = { showSmsDetailDialog = false }) {
+                            Text("Close")
+                        }
+                    }
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+        }
 
         // Optional Notes
         OutlinedTextField(
