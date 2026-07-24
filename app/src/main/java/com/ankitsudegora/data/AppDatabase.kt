@@ -232,6 +232,9 @@ interface TransactionDao {
 
     @Query("SELECT * FROM transactions WHERE linkedListId = :listId LIMIT 1")
     suspend fun getTransactionByLinkedListId(listId: Long): Transaction?
+
+    @Query("SELECT * FROM transactions WHERE linkedListId = :listId ORDER BY timestamp DESC")
+    suspend fun getTransactionsByLinkedListId(listId: Long): List<Transaction>
 }
 
 @Dao

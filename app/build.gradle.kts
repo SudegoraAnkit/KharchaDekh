@@ -13,7 +13,7 @@ android {
     defaultConfig {
     applicationId = "com.ankitsudegora"
     minSdk = 24
-    targetSdk = 35
+    targetSdk = 36
 
     versionCode = 13
     versionName = "1.2.0"

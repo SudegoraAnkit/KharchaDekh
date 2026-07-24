@@ -386,11 +386,17 @@ class MainActivity : ComponentActivity() {
                                 onCheckout = { list, method, categoryId, carryForward, linkedPendingTxnId ->
                                     viewModel.markPlannedListAsPaid(list, method, categoryId, carryForward, linkedPendingTxnId)
                                 },
-                                onUpdateSettleAmount = { listId, amount ->
-                                    viewModel.updateTransactionAmountByLinkedListId(listId, amount)
+                                onUpdateTransactionAmount = { txnId, amount ->
+                                    viewModel.updateTransactionAmount(txnId, amount)
                                 },
-                                onGetTransactionByLinkedListId = { listId ->
-                                    viewModel.getTransactionByLinkedListId(listId)
+                                onGetTransactionsByLinkedListId = { listId ->
+                                    viewModel.getTransactionsByLinkedListId(listId)
+                                },
+                                onUnlinkTransaction = { txnId ->
+                                    viewModel.unlinkTransactionFromPlannedList(txnId)
+                                },
+                                onLinkTransaction = { txnId, listId ->
+                                    viewModel.linkTransactionToPlannedList(txnId, listId)
                                 }
                             )
                         }

@@ -1,5 +1,6 @@
 package com.ankitsudegora.ui.screens
 
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -54,8 +55,10 @@ fun PlannedListsScreen(
     onToggleItem: (PlannedItem) -> Unit,
     onGetLastPrice: suspend (String) -> Double?,
     onCheckout: (PlannedListWithItems, String, Long?, Boolean, Long?) -> Unit,
-    onUpdateSettleAmount: (Long, Double) -> Unit,
-    onGetTransactionByLinkedListId: suspend (Long) -> Transaction?
+    onUpdateTransactionAmount: (Long, Double) -> Unit,
+    onGetTransactionsByLinkedListId: suspend (Long) -> List<Transaction>,
+    onUnlinkTransaction: (Long) -> Unit,
+    onLinkTransaction: (Long, Long) -> Unit
 ) {
     var activeListId by remember { mutableStateOf<Long?>(null) }
     
@@ -77,10 +80,10 @@ fun PlannedListsScreen(
                 onCheckout(activeList, method, categoryId, carryForward, linkedPendingTxnId)
                 activeListId = null
             },
-            onUpdateSettleAmount = { amount ->
-                onUpdateSettleAmount(activeList.plannedList.id, amount)
-            },
-            onGetTransactionByLinkedListId = onGetTransactionByLinkedListId,
+            onUpdateTransactionAmount = onUpdateTransactionAmount,
+            onGetTransactionsByLinkedListId = onGetTransactionsByLinkedListId,
+            onUnlinkTransaction = onUnlinkTransaction,
+            onLinkTransaction = onLinkTransaction,
             onNavigateBack = { activeListId = null }
         )
     } else {
@@ -543,15 +546,21 @@ fun PlannedDetailScreen(
     onToggleItem: (PlannedItem) -> Unit,
     onGetLastPrice: suspend (String) -> Double?,
     onCheckout: (String, Long?, Boolean, Long?) -> Unit,
-    onUpdateSettleAmount: (Double) -> Unit,
-    onGetTransactionByLinkedListId: suspend (Long) -> Transaction?,
+    onUpdateTransactionAmount: (Long, Double) -> Unit,
+    onGetTransactionsByLinkedListId: suspend (Long) -> List<Transaction>,
+    onUnlinkTransaction: (Long) -> Unit,
+    onLinkTransaction: (Long, Long) -> Unit,
     onNavigateBack: () -> Unit
 ) {
     var itemName by remember { mutableStateOf("") }
     var itemQty by remember { mutableStateOf(1) }
     var itemPriceStr by remember { mutableStateOf("") }
     var showCheckoutDialog by remember { mutableStateOf(false) }
+    
+    // We keep track of the specific transaction ID being edited
+    var editingTransactionId by remember { mutableStateOf<Long?>(null) }
     var showEditAmountDialog by remember { mutableStateOf(false) }
+    var showLinkAlertSelectionDialog by remember { mutableStateOf(false) }
 
     // Autocomplete estimates
     var estimatedPrice by remember { mutableStateOf<Double?>(null) }
@@ -559,9 +568,9 @@ fun PlannedDetailScreen(
     val listId = listWithItems.plannedList.id
     val isCompleted = listWithItems.plannedList.status == "COMPLETED"
 
-    var linkedTransaction by remember { mutableStateOf<Transaction?>(null) }
+    var linkedTransactions by remember { mutableStateOf<List<Transaction>>(emptyList()) }
     LaunchedEffect(listId) {
-        linkedTransaction = onGetTransactionByLinkedListId(listId)
+        linkedTransactions = onGetTransactionsByLinkedListId(listId)
     }
 
     val totalAmount = listWithItems.items.sumOf { it.price * it.quantity }
@@ -692,24 +701,12 @@ fun PlannedDetailScreen(
                         Column {
                             Text("Final Settled Total", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.secondary)
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                val displayAmount = linkedTransaction?.amount ?: totalAmount
+                                val displayAmount = if (linkedTransactions.isNotEmpty()) linkedTransactions.sumOf { it.amount } else totalAmount
                                 Text(
                                     text = "₹${"%,.2f".format(displayAmount)}",
                                     style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
                                     color = MaterialTheme.colorScheme.secondary
                                 )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                IconButton(
-                                    onClick = { showEditAmountDialog = true },
-                                    modifier = Modifier.size(24.dp)
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Edit,
-                                        contentDescription = "Edit Amount",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(18.dp)
-                                    )
-                                }
                             }
                         }
                     }
@@ -850,52 +847,72 @@ fun PlannedDetailScreen(
                     )
                 }
             } else {
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                    modifier = Modifier.weight(1f)
-                ) {
-                    val uncheckedItems = listWithItems.items.filter { !it.isChecked }
-                    val checkedItems = listWithItems.items.filter { it.isChecked }
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (isCompleted) {
+                            item {
+                                LinkedTransactionsSection(
+                                    linkedTransactions = linkedTransactions,
+                                    onEditTransactionAmount = { txnId ->
+                                        editingTransactionId = txnId
+                                        showEditAmountDialog = true
+                                    },
+                                    onUnlinkTransaction = { txnId ->
+                                        onUnlinkTransaction(txnId)
+                                        linkedTransactions = linkedTransactions.filter { it.id != txnId }
+                                    },
+                                    onLinkAnotherClick = {
+                                        showLinkAlertSelectionDialog = true
+                                    }
+                                )
+                            }
+                        }
 
-                    if (uncheckedItems.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "To Buy / Settle",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(vertical = 4.dp)
-                            )
-                        }
-                        items(uncheckedItems, key = { "item_${it.id}" }) { item ->
-                            PlannedItemRow(
-                                item = item,
-                                isCompleted = isCompleted,
-                                onToggle = { onToggleItem(item) },
-                                onDelete = { onDeleteItem(item) },
-                                onUpdatePrice = { price -> onUpdateItem(item.copy(price = price)) },
-                                onUpdateQty = { qty -> onUpdateItem(item.copy(quantity = qty)) }
-                            )
-                        }
-                    }
+                        val uncheckedItems = listWithItems.items.filter { !it.isChecked }
+                        val checkedItems = listWithItems.items.filter { it.isChecked }
 
-                    if (checkedItems.isNotEmpty()) {
-                        item {
-                            Text(
-                                text = "Checked / Bought",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
-                            )
+                        if (uncheckedItems.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "To Buy / Settle",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(vertical = 4.dp)
+                                )
+                            }
+                            items(uncheckedItems, key = { "item_${it.id}" }) { item ->
+                                PlannedItemRow(
+                                    item = item,
+                                    isCompleted = isCompleted,
+                                    onToggle = { onToggleItem(item) },
+                                    onDelete = { onDeleteItem(item) },
+                                    onUpdatePrice = { price -> onUpdateItem(item.copy(price = price)) },
+                                    onUpdateQty = { qty -> onUpdateItem(item.copy(quantity = qty)) }
+                                )
+                            }
                         }
-                        items(checkedItems, key = { "item_${it.id}" }) { item ->
-                            PlannedItemRow(
-                                item = item,
-                                isCompleted = isCompleted,
-                                onToggle = { onToggleItem(item) },
-                                onDelete = { onDeleteItem(item) },
-                                onUpdatePrice = { price -> onUpdateItem(item.copy(price = price)) },
-                                onUpdateQty = { qty -> onUpdateItem(item.copy(quantity = qty)) }
-                            )
+
+                        if (checkedItems.isNotEmpty()) {
+                            item {
+                                Text(
+                                    text = "Checked / Bought",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    modifier = Modifier.padding(top = 12.dp, bottom = 4.dp)
+                                )
+                            }
+                            items(checkedItems, key = { "item_${it.id}" }) { item ->
+                                PlannedItemRow(
+                                    item = item,
+                                    isCompleted = isCompleted,
+                                    onToggle = { onToggleItem(item) },
+                                    onDelete = { onDeleteItem(item) },
+                                    onUpdatePrice = { price -> onUpdateItem(item.copy(price = price)) },
+                                    onUpdateQty = { qty -> onUpdateItem(item.copy(quantity = qty)) }
+                                )
+                            }
                         }
                     }
                 }
@@ -916,18 +933,18 @@ fun PlannedDetailScreen(
         )
     }
 
-    if (showEditAmountDialog) {
-        var editAmountStr by remember {
-            val amt = linkedTransaction?.amount ?: totalAmount
+    if (showEditAmountDialog && editingTransactionId != null) {
+        var editAmountStr by remember(editingTransactionId) {
+            val amt = linkedTransactions.find { it.id == editingTransactionId }?.amount ?: 0.0
             mutableStateOf(if (amt == 0.0) "" else amt.toString())
         }
         AlertDialog(
             onDismissRequest = { showEditAmountDialog = false },
-            title = { Text("Edit Settle Amount") },
+            title = { Text("Edit Linked Settle Amount") },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Update the final cash settled for this planned list. This will modify the associated transaction in your ledger.",
+                        text = "Update the settled cash for this specific transaction. This will modify the transaction in your ledger.",
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.secondary
                     )
@@ -949,7 +966,12 @@ fun PlannedDetailScreen(
                 TextButton(
                     onClick = {
                         val newAmount = editAmountStr.toDoubleOrNull() ?: 0.0
-                        onUpdateSettleAmount(newAmount)
+                        if (editingTransactionId != null) {
+                            onUpdateTransactionAmount(editingTransactionId!!, newAmount)
+                            linkedTransactions = linkedTransactions.map {
+                                if (it.id == editingTransactionId) it.copy(amount = newAmount) else it
+                            }
+                        }
                         showEditAmountDialog = false
                     },
                     enabled = editAmountStr.isNotBlank() && (editAmountStr.toDoubleOrNull() ?: 0.0) > 0.0
@@ -960,6 +982,81 @@ fun PlannedDetailScreen(
             dismissButton = {
                 TextButton(onClick = { showEditAmountDialog = false }) {
                     Text("Cancel")
+                }
+            }
+        )
+    }
+
+    if (showLinkAlertSelectionDialog) {
+        AlertDialog(
+            onDismissRequest = { showLinkAlertSelectionDialog = false },
+            title = { Text("Link Pending Bank Alert") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Select a pending transaction to map and link to this completed checklist. This helps group related expenses.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    
+                    if (pendingTransactions.isEmpty()) {
+                        Text(
+                            text = "No pending bank alerts or transactions available to link.",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                            color = MaterialTheme.colorScheme.secondary,
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    } else {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .heightIn(max = 240.dp)
+                        ) {
+                            items(pendingTransactions, key = { it.transaction.id }) { item ->
+                                Surface(
+                                    onClick = {
+                                        onLinkTransaction(item.transaction.id, listId)
+                                        linkedTransactions = linkedTransactions + item.transaction
+                                        showLinkAlertSelectionDialog = false
+                                    },
+                                    shape = RoundedCornerShape(12.dp),
+                                    color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(12.dp),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Text(
+                                                text = item.transaction.merchant,
+                                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                            )
+                                            Text(
+                                                text = item.category?.name ?: "Uncategorized",
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
+                                        }
+                                        Text(
+                                            text = "₹${item.transaction.amount}",
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showLinkAlertSelectionDialog = false }) {
+                    Text("Close")
                 }
             }
         )
@@ -1398,3 +1495,127 @@ fun CheckoutSummaryDialog(
         }
     }
 }
+
+@Composable
+fun LinkedTransactionsSection(
+    linkedTransactions: List<Transaction>,
+    onEditTransactionAmount: (Long) -> Unit,
+    onUnlinkTransaction: (Long) -> Unit,
+    onLinkAnotherClick: () -> Unit
+) {
+    val formatter = remember { SimpleDateFormat("dd MMM, hh:mm a", Locale.getDefault()) }
+    Card(
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)
+        ),
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 8.dp)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Link,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary
+                    )
+                    Text(
+                        text = "Linked Transactions",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                }
+                TextButton(onClick = onLinkAnotherClick) {
+                    Text(
+                        text = "+ Link Alert",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+            }
+            
+            if (linkedTransactions.isEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "No ledger transactions linked to this completed list yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                Spacer(modifier = Modifier.height(8.dp))
+                linkedTransactions.forEachIndexed { index, txn ->
+                    if (index > 0) {
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        )
+                    }
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = txn.merchant,
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                color = MaterialTheme.colorScheme.onSurface
+                            )
+                            Text(
+                                text = formatter.format(Date(txn.timestamp)),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                        
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text(
+                                text = "₹${"%,.2f".format(txn.amount)}",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                            IconButton(
+                                onClick = { onEditTransactionAmount(txn.id) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Edit,
+                                    contentDescription = "Edit Amount",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                            IconButton(
+                                onClick = { onUnlinkTransaction(txn.id) },
+                                modifier = Modifier.size(32.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Clear,
+                                    contentDescription = "Unlink",
+                                    tint = MaterialTheme.colorScheme.error,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+
+
