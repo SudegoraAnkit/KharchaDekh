@@ -1,12 +1,205 @@
-
-
 # KharchaDekh - Privacy-First Automated Expense Tracker
 
 ----
 > [Download Now](https://play.google.com/store/apps/details?id=com.ankitsudegora)
 > On Google Play Store
 ----
-KharchaDekh is a smart, automated personal finance manager designed specifically for India. It operates **100% offline and locally**, parsing transaction notifications (banking and UPI alerts) on-device to respect user privacy in full compliance with the Digital Personal Data Protection (DPDP) Act 2023.
+KharchaDekh is a smart, automated personal finance manager designed specifically for India. It operates **100% offline and locally**, parsing transaction notifications (banking and UPI alerts) on-device using native regex engines.
+
+---
+
+## 🏗️ System Architecture
+
+### Overall Architecture Layers
+
+```mermaid
+graph TB
+    subgraph VIEW["🎨 VIEW LAYER"]
+        MainActivity["MainActivity<br/>(Single Activity)"]
+        Dashboard["Dashboard Screen<br/>(Compose)"]
+        Settings["Settings Screen<br/>(Compose)"]
+        Onboarding["Onboarding Screen<br/>(Compose)"]
+        Enrichment["Enrichment Screen<br/>(Compose)"]
+    end
+
+    subgraph VIEWMODEL["⚙️ VIEWMODEL LAYER"]
+        ExpenseVM["ExpenseViewModel<br/>(State Holders)"]
+        StateFlow["StateFlow - UI Ready Data<br/>(Transactions, Budgets, Filters)"]
+    end
+
+    subgraph REPOSITORY["📚 REPOSITORY LAYER"]
+        ExpenseRepo["ExpenseRepository<br/>(Data Logic & Decoupling)"]
+        BackupManager["BackupManager<br/>(Backup/Restore Logic)"]
+        Exporter["Exporter<br/>(PDF/CSV Generation)"]
+    end
+
+    subgraph BACKGROUND["🔄 BACKGROUND SERVICES"]
+        NotificationListener["TransactionNotificationListener<br/>(NotificationListenerService)"]
+        ReminderWorker["ReminderWorker<br/>(WorkManager - 4x Daily)"]
+        RegexEngine["Regex Parser Engine<br/>(Transaction Parsing)"]
+    end
+
+    subgraph MODEL["💾 MODEL LAYER"]
+        RoomDB["Room Database<br/>(SQLite + WAL)"]
+        Entities["Entities: Transaction,<br/>Category, RecurringSchedule"]
+        DAOs["Data Access Objects<br/>(TransactionDAO, CategoryDAO)"]
+    end
+
+    subgraph STORAGE["💿 LOCAL STORAGE"]
+        LocalDB["Local SQLite Database<br/>(Offline-First)"]
+        FileSystem["File System<br/>(Temp Export Files)"]
+    end
+
+    subgraph EXTERNAL["☁️ EXTERNAL INTEGRATIONS"]
+        SAF["Storage Access Framework<br/>(Google Drive / OneDrive)"]
+        SystemNotif["System Notifications<br/>(Banking, UPI Apps)"]
+    end
+
+    MainActivity --> Dashboard
+    MainActivity --> Settings
+    MainActivity --> Onboarding
+    MainActivity --> Enrichment
+
+    Dashboard --> ExpenseVM
+    Settings --> ExpenseVM
+    Enrichment --> ExpenseVM
+
+    ExpenseVM --> StateFlow
+    ExpenseVM --> ExpenseRepo
+
+    ExpenseRepo --> BackupManager
+    ExpenseRepo --> Exporter
+    ExpenseRepo --> DAOs
+
+    NotificationListener --> RegexEngine
+    RegexEngine --> RoomDB
+    ReminderWorker --> RoomDB
+
+    DAOs --> RoomDB
+    RoomDB --> Entities
+
+    RoomDB --> LocalDB
+    Exporter --> FileSystem
+
+    BackupManager --> SAF
+    NotificationListener --> SystemNotif
+
+    classDef viewStyle fill:#4CAF50,stroke:#2E7D32,stroke-width:2px,color:#fff
+    classDef vmStyle fill:#2196F3,stroke:#1565C0,stroke-width:2px,color:#fff
+    classDef repoStyle fill:#FF9800,stroke:#E65100,stroke-width:2px,color:#fff
+    classDef bgStyle fill:#9C27B0,stroke:#6A1B9A,stroke-width:2px,color:#fff
+    classDef modelStyle fill:#F44336,stroke:#C62828,stroke-width:2px,color:#fff
+    classDef storageStyle fill:#607D8B,stroke:#37474F,stroke-width:2px,color:#fff
+    classDef externalStyle fill:#00BCD4,stroke:#006064,stroke-width:2px,color:#fff
+
+    class VIEW viewStyle
+    class ExpenseVM,StateFlow vmStyle
+    class ExpenseRepo,BackupManager,Exporter repoStyle
+    class NotificationListener,ReminderWorker,RegexEngine bgStyle
+    class RoomDB,Entities,DAOs modelStyle
+    class LocalDB,FileSystem storageStyle
+    class SAF,SystemNotif externalStyle
+```
+
+### Data Flow: Transaction Capture Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant SystemNotif as System Notifications
+    participant NotifListener as TransactionNotificationListener
+    participant RegexEngine as Regex Parser
+    participant Database as Room Database
+    participant ViewModel as ExpenseViewModel
+    participant Dashboard as Dashboard UI
+
+    SystemNotif->>NotifListener: Notification Posted (Bank/UPI Alert)
+    NotifListener->>NotifListener: Extract text & validate sender
+    NotifListener->>RegexEngine: Parse transaction text
+    RegexEngine->>RegexEngine: Extract amount, merchant, timestamp
+    RegexEngine->>Database: Insert as pending transaction (isPending=true)
+    
+    Note over Database: App Opened
+    Database->>ViewModel: Query pending transactions
+    ViewModel->>ViewModel: Prepare UI state
+    ViewModel->>Dashboard: Emit StateFlow with pending list
+    Dashboard->>Dashboard: Display "Action Required" list
+    
+    Note over Dashboard: User Categorizes Transaction
+    Dashboard->>ViewModel: Select category in Enrichment
+    ViewModel->>Database: Update isPending=false, link categoryId
+    Database->>Database: Commit via Room transaction
+    Dashboard->>Dashboard: UI reactively updates
+```
+
+### Data Flow: SAF Database Backup Lifecycle
+
+```mermaid
+sequenceDiagram
+    participant User as User Action
+    participant MainActivity as MainActivity
+    participant SAF as Storage Access Framework
+    participant FileSystem as File System
+    participant BackupManager as BackupManager
+    participant RoomDB as Room Database
+
+    User->>MainActivity: Click Backup Button
+    MainActivity->>SAF: Launch ACTION_CREATE_DOCUMENT
+    SAF->>User: File Picker Dialog
+    User->>SAF: Select Google Drive path
+    SAF->>MainActivity: Return content:// Uri
+    
+    MainActivity->>BackupManager: backupDatabase(context, uri)
+    BackupManager->>RoomDB: Execute PRAGMA wal_checkpoint(FULL)
+    RoomDB->>RoomDB: Flush WAL logs to main DB
+    BackupManager->>FileSystem: Read binary database file
+    BackupManager->>FileSystem: Stream data to SAF Uri
+    FileSystem->>FileSystem: Write to Google Drive
+    BackupManager->>MainActivity: Backup Complete
+    MainActivity->>User: Show Success Toast
+```
+
+### Background Services Architecture
+
+```mermaid
+graph LR
+    subgraph SystemLevel["System Level"]
+        SystemNotif["System Notifications<br/>(Banking, UPI Apps)"]
+        WorkManagerScheduler["WorkManager Scheduler"]
+    end
+
+    subgraph AppServices["App Services"]
+        NotifListener["TransactionNotificationListener<br/>(extends NotificationListenerService)"]
+        ReminderWorker["ReminderWorker<br/>(extends CoroutineWorker)"]
+    end
+
+    subgraph Processing["Processing"]
+        RegexParser["Regex Parser"]
+        DataValidator["Data Validator"]
+    end
+
+    subgraph Storage["Storage & Persistence"]
+        AppDB["AppDatabase<br/>(Room/SQLite)"]
+    end
+
+    SystemNotif -->|onNotificationPosted| NotifListener
+    NotifListener -->|Extract text| RegexParser
+    RegexParser -->|Validate & Parse| DataValidator
+    DataValidator -->|Insert Pending| AppDB
+
+    WorkManagerScheduler -->|Every 24 hours| ReminderWorker
+    ReminderWorker -->|Trigger at 9AM, 1:30PM, 5:30PM| ReminderWorker
+    ReminderWorker -->|Battery-aware constraints| AppDB
+
+    classDef systemStyle fill:#00BCD4,stroke:#006064,stroke-width:2px,color:#fff
+    classDef appStyle fill:#9C27B0,stroke:#6A1B9A,stroke-width:2px,color:#fff
+    classDef processStyle fill:#FF9800,stroke:#E65100,stroke-width:2px,color:#fff
+    classDef storageStyle fill:#F44336,stroke:#C62828,stroke-width:2px,color:#fff
+
+    class SystemLevel systemStyle
+    class AppServices appStyle
+    class Processing processStyle
+    class Storage storageStyle
+```
 
 ---
 
