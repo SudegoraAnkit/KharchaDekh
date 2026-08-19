@@ -230,6 +230,30 @@ interface TransactionDao {
     @Query("UPDATE transactions SET ccRepaymentId = :repaymentId WHERE id IN (:txnIds)")
     suspend fun updateCcRepaymentIdForTransactions(repaymentId: Long, txnIds: List<Long>)
 
+    @RoomTransactionAnnot
+    suspend fun repayCreditCardTransactionsAtomically(repaymentId: Long, repaymentAmount: Double, txnIds: List<Long>) {
+        var remaining = repaymentAmount
+        for (id in txnIds) {
+            val txn = getTransactionById(id) ?: continue
+            val amt = txn.amount
+            if (remaining >= amt) {
+                updateTransaction(txn.copy(ccRepaymentId = repaymentId))
+                remaining -= amt
+            } else if (remaining > 0.0) {
+                updateTransaction(txn.copy(amount = remaining, ccRepaymentId = repaymentId))
+                val carryForward = txn.copy(
+                    id = 0,
+                    amount = amt - remaining,
+                    ccRepaymentId = null
+                )
+                insertTransaction(carryForward)
+                remaining = 0.0
+            } else {
+                break
+            }
+        }
+    }
+
     @Query("SELECT * FROM transactions WHERE linkedListId = :listId LIMIT 1")
     suspend fun getTransactionByLinkedListId(listId: Long): Transaction?
 

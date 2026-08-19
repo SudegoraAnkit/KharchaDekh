@@ -94,6 +94,10 @@ class ExpenseRepository(
         transactionDao.updateCcRepaymentIdForTransactions(repaymentId, txnIds)
     }
 
+    suspend fun repayCreditCardTransactionsAtomically(repaymentId: Long, repaymentAmount: Double, txnIds: List<Long>) {
+        transactionDao.repayCreditCardTransactionsAtomically(repaymentId, repaymentAmount, txnIds)
+    }
+
     // --- Planned Lists & Items CRUD ---
     val allPlannedLists: Flow<List<PlannedListWithItems>> =
         plannedDao.getAllPlannedListsFlow()

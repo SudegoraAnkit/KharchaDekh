@@ -97,7 +97,10 @@ fun EnrichmentScreen(
             merchant = txn.merchant
             notes = txn.notes ?: ""
             transactionType = txn.type
-            selectedCategoryId = txn.categoryId ?: categories.firstOrNull { it.name.lowercase() != "others" }?.id ?: categories.firstOrNull()?.id
+            val recommendedCat = if (txn.categoryId != null) null else {
+                com.ankitsudegora.util.CategoryClassifier.recommendCategory(txn.merchant, allTransactions, categories)
+            }
+            selectedCategoryId = txn.categoryId ?: recommendedCat?.id ?: categories.firstOrNull { it.name.lowercase() != "others" }?.id ?: categories.firstOrNull()?.id
             isRecurringChecked = txn.source == "RECURRING"
             subCategory = txn.subCategory
             selectedRefundedTxnId = txn.refundedTxnId
@@ -650,6 +653,18 @@ fun EnrichmentScreen(
             allTransactions.filter { it.transaction.type == "DEBIT" && !it.transaction.isPending }
         }
 
+        var showAllDebitAmountsForRefund by remember { mutableStateOf(false) }
+        val targetAmount = remember(amountStr, existingTransaction) {
+            amountStr.toDoubleOrNull() ?: existingTransaction?.amount ?: 0.0
+        }
+        val filteredDebitTransactions = remember(debitTransactions, targetAmount, showAllDebitAmountsForRefund) {
+            if (showAllDebitAmountsForRefund) {
+                debitTransactions
+            } else {
+                debitTransactions.filter { Math.abs(it.transaction.amount - targetAmount) < 0.01 }
+            }
+        }
+
         // If CREDIT, show option to map to debit transaction (Refund mapping)
         if (transactionType == "CREDIT") {
             Spacer(modifier = Modifier.height(8.dp))
@@ -719,7 +734,7 @@ fun EnrichmentScreen(
                             onDismissRequest = { refundDropdownExpanded = false },
                             modifier = Modifier.fillMaxWidth(0.9f)
                         ) {
-                            debitTransactions.forEach { pt ->
+                            filteredDebitTransactions.forEach { pt ->
                                 val dateFormatted = SimpleDateFormat("dd MMM yy", Locale.getDefault()).format(Date(pt.transaction.timestamp))
                                 DropdownMenuItem(
                                     text = { Text("₹${pt.transaction.amount} - ${pt.transaction.merchant} ($dateFormatted)") },
@@ -730,6 +745,25 @@ fun EnrichmentScreen(
                                 )
                             }
                         }
+                    }
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { showAllDebitAmountsForRefund = !showAllDebitAmountsForRefund }
+                            .padding(vertical = 4.dp)
+                    ) {
+                        Checkbox(
+                            checked = showAllDebitAmountsForRefund,
+                            onCheckedChange = { showAllDebitAmountsForRefund = it }
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Show all debit amounts (not only matches)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
                     }
                 }
             }

@@ -301,6 +301,42 @@ fun ChartsScreen(
                 animationProgress = animationProgress.value
             )
         }
+
+        // Savings Progress Gauge
+        item {
+            SavingsRateDialCard(
+                inflow = cycleInflow,
+                outflow = cycleOutflow,
+                targetPct = 30,
+                currencySymbol = currencySymbol
+            )
+        }
+
+        // Weekly Outflow Burn Rate Bars
+        item {
+            val weeklyOutflows = remember(allTransactions, primaryCurrency) {
+                val result = mutableListOf<Double>()
+                val oneWeekMs = 7L * 24L * 60L * 60L * 1000L
+                for (i in 0 until 4) {
+                    val start = now - (i + 1) * oneWeekMs
+                    val end = now - i * oneWeekMs
+                    val total = allTransactions.filter { item ->
+                        !item.transaction.isPending &&
+                        item.transaction.type == "DEBIT" &&
+                        item.category?.name != "CreditCard Payment" &&
+                        item.transaction.timestamp >= start &&
+                        item.transaction.timestamp < end
+                    }.sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
+                    result.add(total)
+                }
+                result.reverse()
+                result
+            }
+            WeeklyOutflowBarsCard(
+                weeklyOutflows = weeklyOutflows,
+                currencySymbol = currencySymbol
+            )
+        }
     }
 }
 
@@ -1082,3 +1118,164 @@ private fun borderStroke() = androidx.compose.foundation.BorderStroke(
     width = 1.dp,
     color = MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
 )
+
+@Composable
+fun SavingsRateDialCard(
+    inflow: Double,
+    outflow: Double,
+    targetPct: Int = 30,
+    currencySymbol: String
+) {
+    val savings = inflow - outflow
+    val rate = if (inflow > 0.0 && savings > 0.0) (savings / inflow).coerceIn(0.0, 1.0) else 0.0
+    val percentage = (rate * 100).toInt()
+    
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = borderStroke(),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Monthly Savings Progress",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.align(Alignment.Start)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier.size(150.dp)
+            ) {
+                val trackColor = MaterialTheme.colorScheme.surfaceVariant
+                val progressColor = if (percentage >= targetPct) Color(0xFF4ADE80) else Color(0xFFFACC15)
+                val stroke = with(LocalDensity.current) { Stroke(width = 14.dp.toPx(), cap = StrokeCap.Round) }
+                
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    drawArc(
+                        color = trackColor,
+                        startAngle = 135f,
+                        sweepAngle = 270f,
+                        useCenter = false,
+                        style = stroke
+                    )
+                    drawArc(
+                        color = progressColor,
+                        startAngle = 135f,
+                        sweepAngle = 270f * rate.toFloat(),
+                        useCenter = false,
+                        style = stroke
+                    )
+                }
+                
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(
+                        text = "$percentage%",
+                        style = MaterialTheme.typography.displaySmall.copy(fontWeight = FontWeight.Black),
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = "Target: $targetPct%",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+                text = if (savings > 0) {
+                    "You saved ${currencySymbol}${"%,.2f".format(savings)} of ${currencySymbol}${"%,.2f".format(inflow)} income"
+                } else {
+                    "No net savings this cycle (deficit of ${currencySymbol}${"%,.2f".format(savings.absoluteValue)})"
+                },
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+            )
+        }
+    }
+}
+
+@Composable
+fun WeeklyOutflowBarsCard(
+    weeklyOutflows: List<Double>,
+    currencySymbol: String
+) {
+    Card(
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surface
+        ),
+        border = borderStroke(),
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(
+            modifier = Modifier.padding(20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Text(
+                text = "Weekly Burn Rate (Last 4 Weeks)",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                modifier = Modifier.align(Alignment.Start)
+            )
+            Spacer(modifier = Modifier.height(24.dp))
+            
+            val maxOutflow = remember(weeklyOutflows) { weeklyOutflows.maxOrNull()?.coerceAtLeast(1.0) ?: 1.0 }
+            
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(140.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+                verticalAlignment = Alignment.Bottom
+            ) {
+                weeklyOutflows.forEachIndexed { index, amount ->
+                    val ratio = (amount / maxOutflow).toFloat()
+                    val barHeight = (100 * ratio).coerceAtLeast(10f).dp
+                    
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Bottom,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text(
+                            text = "${currencySymbol}${amount.toInt()}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.padding(bottom = 4.dp)
+                        )
+                        Box(
+                            modifier = Modifier
+                                .width(28.dp)
+                                .height(barHeight)
+                                .clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
+                                .background(
+                                    Brush.verticalGradient(
+                                        colors = listOf(
+                                            MaterialTheme.colorScheme.primary,
+                                            MaterialTheme.colorScheme.primary.copy(alpha = 0.6f)
+                                        )
+                                    )
+                                )
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Text(
+                            text = "W${4 - index}",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+            }
+        }
+    }
+}

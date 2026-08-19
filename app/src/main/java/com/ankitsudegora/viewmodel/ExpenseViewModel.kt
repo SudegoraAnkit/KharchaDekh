@@ -551,7 +551,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             val repaymentTxnId = repository.insertTransaction(transaction)
 
             if (repaidCcId != null && selectedRepaidTxnIds.isNotEmpty()) {
-                repository.updateCcRepaymentIdForTransactions(repaymentTxnId, selectedRepaidTxnIds)
+                repository.repayCreditCardTransactionsAtomically(repaymentTxnId, amount, selectedRepaidTxnIds)
             }
 
             if (!recurringFrequency.isNullOrEmpty()) {
@@ -630,7 +630,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
                 repository.updateTransaction(updated)
 
                 if (repaidCcId != null && selectedRepaidTxnIds.isNotEmpty()) {
-                    repository.updateCcRepaymentIdForTransactions(id, selectedRepaidTxnIds)
+                    repository.repayCreditCardTransactionsAtomically(id, amount, selectedRepaidTxnIds)
                 }
 
                 if (!recurringFrequency.isNullOrEmpty()) {
@@ -1167,7 +1167,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
             )
             val repaymentId = repository.insertTransaction(transaction)
             if (selectedTxnIds.isNotEmpty()) {
-                repository.updateCcRepaymentIdForTransactions(repaymentId, selectedTxnIds)
+                repository.repayCreditCardTransactionsAtomically(repaymentId, amount, selectedTxnIds)
             }
         }
     }

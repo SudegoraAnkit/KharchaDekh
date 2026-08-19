@@ -348,7 +348,9 @@ fun DashboardScreen(
                                 PendingReviewCard(
                                     item = item,
                                     onVerifyClicked = { onEnrichTransaction(item.transaction.id) },
-                                    onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                                    onDeleteClicked = { onDeleteTransaction(item.transaction) },
+                                    primaryCurrency = primaryCurrency,
+                                    onConvertAmount = onConvertAmount
                                 )
                             }
                         }
@@ -441,7 +443,9 @@ fun DashboardScreen(
                                         TransactionListItem(
                                             item = item,
                                             onEditClicked = { onEnrichTransaction(item.transaction.id) },
-                                            onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                                            onDeleteClicked = { onDeleteTransaction(item.transaction) },
+                                            primaryCurrency = primaryCurrency,
+                                            onConvertAmount = onConvertAmount
                                         )
                                     }
                                 }
@@ -462,7 +466,9 @@ fun DashboardScreen(
                                         TransactionListItem(
                                             item = item,
                                             onEditClicked = { onEnrichTransaction(item.transaction.id) },
-                                            onDeleteClicked = { onDeleteTransaction(item.transaction) }
+                                            onDeleteClicked = { onDeleteTransaction(item.transaction) },
+                                            primaryCurrency = primaryCurrency,
+                                            onConvertAmount = onConvertAmount
                                         )
                                     }
                                 }
@@ -1050,7 +1056,9 @@ fun CategoryBreakdownSection(analytics: AnalyticsState, currencySymbol: String) 
 fun PendingReviewCard(
     item: TransactionWithCategory,
     onVerifyClicked: () -> Unit,
-    onDeleteClicked: () -> Unit
+    onDeleteClicked: () -> Unit,
+    primaryCurrency: String = "INR",
+    onConvertAmount: ((Double, String) -> Double)? = null
 ) {
     Card(
         onClick = onVerifyClicked,
@@ -1093,8 +1101,14 @@ fun PendingReviewCard(
 
                 Column {
                     Row(verticalAlignment = Alignment.CenterVertically) {
+                        val amountText = if (item.transaction.currency.uppercase() != primaryCurrency.uppercase() && onConvertAmount != null) {
+                            val converted = onConvertAmount(item.transaction.amount, item.transaction.currency)
+                            "${getCurrencySymbol(primaryCurrency)}${"%,.2f".format(converted)} (${getCurrencySymbol(item.transaction.currency)}${item.transaction.amount})"
+                        } else {
+                            "${getCurrencySymbol(item.transaction.currency)}${item.transaction.amount}"
+                        }
                         Text(
-                            text = "${getCurrencySymbol(item.transaction.currency)}${item.transaction.amount}",
+                            text = amountText,
                             style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                             color = MaterialTheme.colorScheme.onSurface
                         )
@@ -1158,7 +1172,9 @@ fun PendingReviewCard(
 fun TransactionListItem(
     item: TransactionWithCategory,
     onEditClicked: () -> Unit,
-    onDeleteClicked: () -> Unit
+    onDeleteClicked: () -> Unit,
+    primaryCurrency: String = "INR",
+    onConvertAmount: ((Double, String) -> Double)? = null
 ) {
     val isDebit = item.transaction.type == "DEBIT"
     val isDark = isSystemInDarkTheme()
@@ -1253,8 +1269,16 @@ fun TransactionListItem(
                     if (isDark) Color(0xFF4ADE80) else Color(0xFF0F766E)
                 }
                 
+                val primarySymbol = getCurrencySymbol(primaryCurrency)
+                val amountText = if (item.transaction.currency.uppercase() != primaryCurrency.uppercase() && onConvertAmount != null) {
+                    val converted = onConvertAmount(item.transaction.amount, item.transaction.currency)
+                    "$sign $primarySymbol${"%,.2f".format(converted)} (${getCurrencySymbol(item.transaction.currency)}${"%,.2f".format(item.transaction.amount)})"
+                } else {
+                    "$sign ${getCurrencySymbol(item.transaction.currency)}${"%,.2f".format(item.transaction.amount)}"
+                }
+
                 Text(
-                    text = "$sign ${getCurrencySymbol(item.transaction.currency)}${"%,.2f".format(item.transaction.amount)}",
+                    text = amountText,
                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Black),
                     color = amountColor,
                     maxLines = 1
