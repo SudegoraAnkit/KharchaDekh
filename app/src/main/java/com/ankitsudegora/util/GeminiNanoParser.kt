@@ -3,13 +3,6 @@ package com.ankitsudegora.util
 import android.content.Context
 import android.os.Build
 
-data class ParsedTransaction(
-    val amount: Double,
-    val merchant: String,
-    val type: String, // "DEBIT" or "CREDIT"
-    val refNumber: String? = null
-)
-
 object GeminiNanoParser {
 
     /**
@@ -101,9 +94,10 @@ object GeminiNanoParser {
 
         return ParsedTransaction(
             amount = amount,
-            merchant = merchant,
             type = type,
-            refNumber = refNumber
+            merchant = merchant,
+            refNumber = refNumber,
+            sender = "GeminiNano"
         )
     }
 }

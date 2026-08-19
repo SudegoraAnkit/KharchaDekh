@@ -102,6 +102,12 @@ data class ParsedTransaction(
 object SemanticTransactionParser {
     private val classifier: SemanticTextClassifier = TokenWeightClassifier()
 
+    fun cleanVpa(vpa: String): String {
+        var name = vpa.trim()
+        name = name.split("/")[0].split("-")[0].split("@")[0].split(".")[0].trim()
+        return name.replace(Regex("[^a-zA-Z0-9\\s]+$"), "").trim()
+    }
+
     fun parse(title: String, text: String): ParsedTransaction? {
         val cleanText = text.lowercase(Locale.ROOT)
 
@@ -191,8 +197,7 @@ object SemanticTransactionParser {
             if (name.isBlank()) return null
             
             // Clean common VPA/reference suffixes
-            name = name.split("/")[0].split("-")[0].split("@")[0].split(".")[0].trim()
-            name = name.replace(Regex("[^a-zA-Z0-9\\s]+$"), "").trim() // Strip trailing punctuation
+            name = cleanVpa(name)
             
             val lowerName = name.lowercase(Locale.ROOT)
             
