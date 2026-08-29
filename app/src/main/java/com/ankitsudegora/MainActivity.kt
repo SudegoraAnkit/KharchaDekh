@@ -5,7 +5,9 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
@@ -16,8 +18,11 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -35,7 +40,7 @@ import kotlinx.coroutines.launch
 import java.util.*
 
 enum class AppTab {
-    DASHBOARD, CALENDAR, ADD_MANUAL, CATEGORIES, SETTINGS, PLANNED_LISTS, CREDIT_CARD
+    DASHBOARD, ACTIVITY, ADD_MANUAL, PLANNED_LISTS, INSIGHTS, CATEGORIES, SETTINGS, CREDIT_CARD
 }
 
 enum class ExportScope {
@@ -137,6 +142,7 @@ class MainActivity : ComponentActivity() {
     fun MainAppScaffold() {
         var currentTab by remember { mutableStateOf(AppTab.DASHBOARD) }
         var showFilterScreen by remember { mutableStateOf(false) }
+        var showQuickAddModal by remember { mutableStateOf(false) }
         
         // Navigation states integrated into Viewmodel StateFlow to survive configuration changes
         val activeEnrichId by viewModel.activeEnrichId.collectAsStateWithLifecycle()
@@ -194,8 +200,23 @@ class MainActivity : ComponentActivity() {
                 }
             )
         } else if (activeEnrichId != null) {
+            val pendingList = pendingTransactions.map { it.transaction }
+            val currentPendingIndex = pendingList.indexOfFirst { it.id == activeEnrichId }
+            val pendingCount = pendingList.size
+            val displayIndex = if (currentPendingIndex >= 0) currentPendingIndex + 1 else 1
+
             EnrichmentScreen(
                 transactionId = activeEnrichId!!,
+                pendingCount = pendingCount,
+                currentIndex = displayIndex,
+                onSkipToNext = if (pendingCount > 1) {
+                    {
+                        val nextTxn = pendingList.find { it.id != activeEnrichId }
+                        if (nextTxn != null) {
+                            viewModel.setActiveEnrichId(nextTxn.id)
+                        }
+                    }
+                } else null,
                 categories = categories,
                 creditCards = creditCards,
                 allTransactions = allTransactions,
@@ -217,7 +238,13 @@ class MainActivity : ComponentActivity() {
                         linkedListId = linkedListId,
                         refundedTxnId = refundedTxnId
                     )
-                    viewModel.setActiveEnrichId(null) // Close enriching panel
+                    // Auto-advance to next pending transaction if any exists
+                    val remainingPending = pendingList.filter { it.id != id }
+                    if (remainingPending.isNotEmpty()) {
+                        viewModel.setActiveEnrichId(remainingPending.first().id)
+                    } else {
+                        viewModel.setActiveEnrichId(null)
+                    }
                 },
                 onNavigateBack = {
                     viewModel.setActiveEnrichId(null)
@@ -227,51 +254,97 @@ class MainActivity : ComponentActivity() {
             Scaffold(
                 bottomBar = {
                     NavigationBar(
-                        windowInsets = WindowInsets.navigationBars
+                        windowInsets = WindowInsets.navigationBars,
+                        containerColor = com.ankitsudegora.ui.theme.DarkSurface,
+                        contentColor = com.ankitsudegora.ui.theme.BrandLime,
+                        tonalElevation = 0.dp
                     ) {
+                        val navItemColors = NavigationBarItemDefaults.colors(
+                            selectedIconColor = com.ankitsudegora.ui.theme.BrandOnLimeContainer,
+                            selectedTextColor = com.ankitsudegora.ui.theme.BrandLime,
+                            indicatorColor = com.ankitsudegora.ui.theme.BrandLimeContainer,
+                            unselectedIconColor = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant,
+                            unselectedTextColor = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant
+                        )
+
+                        // 1. Home Tab
                         NavigationBarItem(
                             selected = currentTab == AppTab.DASHBOARD,
                             onClick = { currentTab = AppTab.DASHBOARD },
-                            label = { Text("Feed") },
+                            label = { Text("Home", fontWeight = if (currentTab == AppTab.DASHBOARD) FontWeight.Bold else FontWeight.Medium) },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentTab == AppTab.DASHBOARD) Icons.Filled.PieChart else Icons.Outlined.PieChart,
-                                    contentDescription = "Dashboard"
+                                    imageVector = if (currentTab == AppTab.DASHBOARD) Icons.Filled.Home else Icons.Outlined.Home,
+                                    contentDescription = "Home"
                                 )
-                            }
+                            },
+                            colors = navItemColors
                         )
+
+                        // 2. Activity Tab
                         NavigationBarItem(
-                            selected = currentTab == AppTab.ADD_MANUAL,
-                            onClick = { currentTab = AppTab.ADD_MANUAL },
-                            label = { Text("Log Cash") },
+                            selected = currentTab == AppTab.ACTIVITY,
+                            onClick = { currentTab = AppTab.ACTIVITY },
+                            label = { Text("Activity", fontWeight = if (currentTab == AppTab.ACTIVITY) FontWeight.Bold else FontWeight.Medium) },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentTab == AppTab.ADD_MANUAL) Icons.Filled.AddCircle else Icons.Outlined.AddCircle,
-                                    contentDescription = "Log Cash"
+                                    imageVector = if (currentTab == AppTab.ACTIVITY) Icons.Filled.ReceiptLong else Icons.Outlined.ReceiptLong,
+                                    contentDescription = "Activity"
                                 )
-                            }
+                            },
+                            colors = navItemColors
                         )
+
+                        // 3. Center (+) Quick Add Button
+                        NavigationBarItem(
+                            selected = false,
+                            onClick = { showQuickAddModal = true },
+                            label = { },
+                            icon = {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(CircleShape)
+                                        .background(com.ankitsudegora.ui.theme.BrandLime),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Add,
+                                        contentDescription = "Quick Add",
+                                        tint = com.ankitsudegora.ui.theme.DarkBackground,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
+                            },
+                            colors = navItemColors
+                        )
+
+                        // 4. Lists Tab
                         NavigationBarItem(
                             selected = currentTab == AppTab.PLANNED_LISTS,
                             onClick = { currentTab = AppTab.PLANNED_LISTS },
-                            label = { Text("Lists") },
+                            label = { Text("Lists", fontWeight = if (currentTab == AppTab.PLANNED_LISTS) FontWeight.Bold else FontWeight.Medium) },
                             icon = {
                                 Icon(
                                     imageVector = if (currentTab == AppTab.PLANNED_LISTS) Icons.AutoMirrored.Filled.PlaylistAddCheck else Icons.AutoMirrored.Outlined.PlaylistAddCheck,
                                     contentDescription = "Planned Lists"
                                 )
-                            }
+                            },
+                            colors = navItemColors
                         )
+
+                        // 5. Insights Tab
                         NavigationBarItem(
-                            selected = currentTab == AppTab.CREDIT_CARD,
-                            onClick = { currentTab = AppTab.CREDIT_CARD },
-                            label = { Text("Cards") },
+                            selected = currentTab == AppTab.INSIGHTS,
+                            onClick = { currentTab = AppTab.INSIGHTS },
+                            label = { Text("Insights", fontWeight = if (currentTab == AppTab.INSIGHTS) FontWeight.Bold else FontWeight.Medium) },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentTab == AppTab.CREDIT_CARD) Icons.Filled.CreditCard else Icons.Outlined.CreditCard,
-                                    contentDescription = "Credit Cards"
+                                    imageVector = if (currentTab == AppTab.INSIGHTS) Icons.Filled.Insights else Icons.Outlined.Insights,
+                                    contentDescription = "Insights"
                                 )
-                            }
+                            },
+                            colors = navItemColors
                         )
                     }
                 },
@@ -308,13 +381,40 @@ class MainActivity : ComponentActivity() {
                                 onExportCsvCalendar = { txns -> performExportCsv(txns) },
                                 onExportPdfCalendar = { txns -> performExportPdf(txns) },
                                 primaryCurrency = primaryCurrency,
+                                onConvertAmount = { amount, fromCurrency -> viewModel.convertAmount(amount, fromCurrency, primaryCurrency) },
+                                onAddExpenseClicked = { currentTab = AppTab.ADD_MANUAL }
+                            )
+                        }
+
+                        AppTab.ACTIVITY -> {
+                            ActivityScreen(
+                                allTransactions = allTransactions,
+                                categories = categories,
+                                billingCycleStartDay = billingCycleStartDay,
+                                onEnrichTransaction = { id -> viewModel.setActiveEnrichId(id) },
+                                onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
+                                onExportCsv = { onExportCsvClick(allTransactions) },
+                                onExportPdf = { onExportPdfClick(allTransactions) },
+                                onSearchClicked = { showFilterScreen = true },
+                                primaryCurrency = primaryCurrency,
                                 onConvertAmount = { amount, fromCurrency -> viewModel.convertAmount(amount, fromCurrency, primaryCurrency) }
                             )
                         }
-                        AppTab.CALENDAR -> {
-                            // Redirect to DashboardFeed where Calendar is now inline
-                            currentTab = AppTab.DASHBOARD
+
+                        AppTab.INSIGHTS -> {
+                            InsightsScreen(
+                                analytics = analytics,
+                                categories = categories,
+                                monthlyCategorySpends = monthlyCategorySpends,
+                                forecastAllowance = forecastAllowance,
+                                monthlyIncome = monthlyIncome,
+                                selectedFilter = selectedFilter,
+                                onFilterSelected = { filter -> viewModel.setTimeboxFilter(filter) },
+                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES },
+                                primaryCurrency = primaryCurrency
+                            )
                         }
+
                         AppTab.ADD_MANUAL -> {
                             AddManualScreen(
                                 categories = categories,
@@ -329,6 +429,7 @@ class MainActivity : ComponentActivity() {
                                 onNavigateBack = { currentTab = AppTab.DASHBOARD }
                             )
                         }
+
                         AppTab.CATEGORIES -> {
                             CategoriesScreen(
                                 categories = categories,
@@ -337,6 +438,7 @@ class MainActivity : ComponentActivity() {
                                 onUpdateCategoryBudget = { cat, budget -> viewModel.updateCategoryBudget(cat, budget) }
                             )
                         }
+
                         AppTab.SETTINGS -> {
                             SettingsScreen(
                                 userName = userName,
@@ -370,6 +472,7 @@ class MainActivity : ComponentActivity() {
                                 onUpdatePrimaryCurrency = { currency -> viewModel.updatePrimaryCurrency(currency) }
                             )
                         }
+
                         AppTab.PLANNED_LISTS -> {
                             PlannedListsScreen(
                                 plannedLists = plannedLists,
@@ -400,6 +503,7 @@ class MainActivity : ComponentActivity() {
                                 }
                             )
                         }
+
                         AppTab.CREDIT_CARD -> {
                             val creditCardsVal by viewModel.allCreditCards.collectAsStateWithLifecycle()
                             val allTxnsVal by viewModel.allTransactions.collectAsStateWithLifecycle()
@@ -410,24 +514,178 @@ class MainActivity : ComponentActivity() {
                                     viewModel.repayCreditCardBill(card, amount, txnIds)
                                 },
                                 onExportStatement = { card, transactions ->
-                                    lifecycleScope.launch {
-                                        val uri = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-                                            com.ankitsudegora.util.Exporter.exportCcStatement(this@MainActivity, card.cardName, transactions)
-                                        }
-                                        if (uri != null) {
-                                            val intent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                                                type = "text/csv"
-                                                putExtra(android.content.Intent.EXTRA_STREAM, uri)
-                                                addFlags(android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION)
-                                            }
-                                            startActivity(android.content.Intent.createChooser(intent, "Share Credit Card Statement"))
-                                        } else {
-                                            Toast.makeText(this@MainActivity, "Failed to generate CSV statement.", Toast.LENGTH_SHORT).show()
-                                        }
-                                    }
+                                    onExportCsvClick(transactions)
                                 }
                             )
                         }
+                    }
+                }
+            }
+
+            // Quick Actions Modal Bottom Sheet
+            if (showQuickAddModal) {
+                ModalBottomSheet(
+                    onDismissRequest = { showQuickAddModal = false },
+                    containerColor = com.ankitsudegora.ui.theme.DarkSurface,
+                    scrimColor = Color.Black.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(14.dp)
+                    ) {
+                        Text(
+                            text = "Quick Actions",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = com.ankitsudegora.ui.theme.DarkOnSurface
+                        )
+
+                        // 1. Add Expense
+                        Card(
+                            onClick = {
+                                showQuickAddModal = false
+                                currentTab = AppTab.ADD_MANUAL
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = com.ankitsudegora.ui.theme.DarkSurfaceElevated),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(com.ankitsudegora.ui.theme.BrandLimeContainer),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.AddCard,
+                                        contentDescription = null,
+                                        tint = com.ankitsudegora.ui.theme.BrandLime
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        "Add Expense",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = com.ankitsudegora.ui.theme.DarkOnSurface
+                                    )
+                                    Text(
+                                        "Manually add an expense",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // 2. Create List
+                        Card(
+                            onClick = {
+                                showQuickAddModal = false
+                                currentTab = AppTab.PLANNED_LISTS
+                            },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = com.ankitsudegora.ui.theme.DarkSurfaceElevated),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(14.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(40.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF3B82F6).copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.AutoMirrored.Filled.PlaylistAddCheck,
+                                        contentDescription = null,
+                                        tint = Color(0xFF3B82F6)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        "Create List",
+                                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                        color = com.ankitsudegora.ui.theme.DarkOnSurface
+                                    )
+                                    Text(
+                                        "Create a shopping list",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        // 3. Scan Bill (Coming Soon)
+                        Card(
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = com.ankitsudegora.ui.theme.DarkSurfaceElevated.copy(alpha = 0.5f)),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(16.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(com.ankitsudegora.ui.theme.DarkSurfaceVariant),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.DocumentScanner,
+                                            contentDescription = null,
+                                            tint = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            "Scan Bill",
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant
+                                        )
+                                        Text(
+                                            "Extract expenses from bill",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant.copy(alpha = 0.6f)
+                                        )
+                                    }
+                                }
+
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(com.ankitsudegora.ui.theme.DarkSurfaceVariant)
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        "Coming Soon",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                        color = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
                     }
                 }
             }

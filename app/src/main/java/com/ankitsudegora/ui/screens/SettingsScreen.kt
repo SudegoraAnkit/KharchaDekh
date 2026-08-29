@@ -35,7 +35,10 @@ import androidx.core.content.ContextCompat
 import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.RecurringSchedule
 import com.ankitsudegora.data.CreditCard
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.ui.res.painterResource
+import com.ankitsudegora.R
 import com.ankitsudegora.ui.components.getIconVector
 
 @Composable
@@ -1380,16 +1383,31 @@ fun SettingsScreen(
             modifier = Modifier.fillMaxWidth(),
             contentAlignment = Alignment.Center
         ) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Text(
-                    text = "Made with 💝 by Ankit Sudegora",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = MaterialTheme.colorScheme.secondary
+            Column(
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = "KharchaDekh Logo",
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(RoundedCornerShape(12.dp))
                 )
                 Text(
-                    text = "Version v1.3.0 • Secure Ledger",
+                    text = "KharchaDekh",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
+                    color = MaterialTheme.colorScheme.onSurface
+                )
+                Text(
+                    text = "Version v2.0.0.0 • 100% Offline Secure Ledger",
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.outline
+                )
+                Text(
+                    text = "Made with 💝 by Ankit Sudegora",
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                    color = MaterialTheme.colorScheme.secondary
                 )
             }
         }

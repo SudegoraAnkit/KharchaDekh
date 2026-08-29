@@ -12,10 +12,10 @@ import androidx.compose.ui.platform.LocalContext
 
 private val DarkColorScheme =
   darkColorScheme(
-    primary = DarkPrimaryTeal,
-    onPrimary = DarkOnPrimary,
-    primaryContainer = DarkPrimaryContainer,
-    onPrimaryContainer = DarkOnPrimaryContainer,
+    primary = BrandLime,
+    onPrimary = DarkBackground,
+    primaryContainer = BrandLimeContainer,
+    onPrimaryContainer = BrandOnLimeContainer,
     secondary = DarkSecondary,
     onSecondary = DarkOnSecondary,
     secondaryContainer = DarkSecondaryContainer,
@@ -26,8 +26,8 @@ private val DarkColorScheme =
     onSurface = DarkOnSurface,
     surfaceVariant = DarkSurfaceVariant,
     onSurfaceVariant = DarkOnSurfaceVariant,
-    outline = DarkOutline,
-    outlineVariant = DarkOutlineVariant,
+    outline = DarkBorder,
+    outlineVariant = DarkBorderSubtle,
     error = DarkError,
     onError = DarkOnError,
     errorContainer = DarkErrorContainer,
@@ -36,32 +36,32 @@ private val DarkColorScheme =
 
 private val LightColorScheme =
   lightColorScheme(
-    primary = PrimaryTeal,
-    onPrimary = OnPrimaryTeal,
-    primaryContainer = PrimaryContainerTeal,
-    onPrimaryContainer = OnPrimaryContainerTeal,
-    secondary = SecondarySlate,
-    onSecondary = OnSecondarySlate,
-    secondaryContainer = SecondaryContainerSlate,
-    onSecondaryContainer = OnSecondaryContainerSlate,
-    background = GeoBackground,
-    onBackground = GeoOnBackground,
-    surface = GeoSurface,
-    onSurface = GeoOnSurface,
-    surfaceVariant = GeoSurfaceVariant,
-    onSurfaceVariant = GeoOnSurfaceVariant,
-    outline = GeoOutline,
-    outlineVariant = GeoOutlineVariant,
-    error = GeoError,
-    onError = GeoOnError,
-    errorContainer = GeoErrorContainer,
-    onErrorContainer = GeoOnErrorContainer
+    primary = LightPrimary,
+    onPrimary = LightOnPrimary,
+    primaryContainer = LightPrimaryContainer,
+    onPrimaryContainer = LightOnPrimaryContainer,
+    secondary = LightOnSurfaceVariant,
+    onSecondary = LightSurface,
+    secondaryContainer = LightSurfaceVariant,
+    onSecondaryContainer = LightOnBackground,
+    background = LightBackground,
+    onBackground = LightOnBackground,
+    surface = LightSurface,
+    onSurface = LightOnSurface,
+    surfaceVariant = LightSurfaceVariant,
+    onSurfaceVariant = LightOnSurfaceVariant,
+    outline = LightOutline,
+    outlineVariant = LightOutlineVariant,
+    error = LightError,
+    onError = LightOnError,
+    errorContainer = LightErrorContainer,
+    onErrorContainer = LightOnErrorContainer
   )
 
 @Composable
 fun KharchaDekhTheme(
-  darkTheme: Boolean = isSystemInDarkTheme(),
-  // Disable dynamic color to enforce of Geometric Balance brand aesthetic
+  // Dark-first default experience for modern private fintech assistant
+  darkTheme: Boolean = true,
   dynamicColor: Boolean = false,
   content: @Composable () -> Unit,
 ) {
@@ -78,3 +78,4 @@ fun KharchaDekhTheme(
 
   MaterialTheme(colorScheme = colorScheme, typography = Typography, content = content)
 }
+

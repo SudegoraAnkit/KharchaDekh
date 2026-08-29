@@ -56,4 +56,37 @@ object CategoryClassifier {
         // But if that's not found, return the first available category
         return allCategories.find { it.name.equals("Others", ignoreCase = true) } ?: allCategories.firstOrNull()
     }
+
+    /**
+     * Computes an honest, transparent confidence score (70% - 99%) based on
+     * historical user confirmations or keyword matching heuristics.
+     */
+    fun calculateConfidenceScore(
+        merchant: String,
+        allTransactions: List<TransactionWithCategory>
+    ): Int {
+        if (merchant.isBlank()) return 70
+        val cleanMerchant = merchant.trim().lowercase()
+
+        val exactMatches = allTransactions.count {
+            it.transaction.merchant.trim().lowercase() == cleanMerchant &&
+            it.category != null && !it.transaction.isPending
+        }
+
+        if (exactMatches > 0) {
+            // Repeat merchant in user ledger gives high confidence
+            return (88 + (exactMatches * 3)).coerceAtMost(99)
+        }
+
+        val knownKeywords = listOf(
+            "swiggy", "zomato", "uber", "ola", "starbucks", "dmart", "blinkit", "zepto",
+            "bigbasket", "amazon", "flipkart", "netflix", "spotify", "airtel", "jio", "bsnl"
+        )
+        if (knownKeywords.any { cleanMerchant.contains(it) }) {
+            return 95
+        }
+
+        return 82
+    }
 }
+

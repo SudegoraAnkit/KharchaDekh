@@ -37,6 +37,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.ankitsudegora.data.*
 import com.ankitsudegora.ui.components.getIconVector
+import com.ankitsudegora.ui.theme.*
 import kotlinx.coroutines.launch
 import java.text.SimpleDateFormat
 import java.util.*
@@ -109,143 +110,175 @@ fun PlannedMasterScreen(
     onSelectList: (Long) -> Unit
 ) {
     var showAddDialog by remember { mutableStateOf(false) }
-    var listName by remember { mutableStateOf("") }
-    var budgetCapStr by remember { mutableStateOf("") }
-    var isCompletedSectionExpanded by remember { mutableStateOf(false) }
+    var selectedTab by remember { mutableStateOf(0) } // 0: My Lists, 1: Completed
+    var searchQuery by remember { mutableStateOf("") }
+    var isSearching by remember { mutableStateOf(false) }
 
-    Scaffold(
-        floatingActionButton = {
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-                modifier = Modifier.testTag("add_planned_list_fab")
-            ) {
-                Icon(Icons.Default.Add, "New List")
-            }
-        }
-    ) { innerPadding ->
+    val draftLists = remember(plannedLists, searchQuery) {
+        plannedLists.filter { it.plannedList.status != "COMPLETED" && (searchQuery.isBlank() || it.plannedList.name.contains(searchQuery, ignoreCase = true)) }
+    }
+    val completedLists = remember(plannedLists, searchQuery) {
+        plannedLists.filter { it.plannedList.status == "COMPLETED" && (searchQuery.isBlank() || it.plannedList.name.contains(searchQuery, ignoreCase = true)) }
+    }
+
+    Surface(
+        modifier = Modifier.fillMaxSize(),
+        color = DarkBackground
+    ) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
-                .padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 20.dp)
         ) {
-            Text(
-                text = "Planned Checklists",
-                style = MaterialTheme.typography.headlineSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onBackground
-            )
-            
-            Text(
-                text = "Draft shopping checklists, plan home/maintenance items, set budget caps, and check them off. Automatically post as transactions upon settlement.",
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant
-            )
+            // Top Header
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                if (isSearching) {
+                    OutlinedTextField(
+                        value = searchQuery,
+                        onValueChange = { searchQuery = it },
+                        placeholder = { Text("Search lists...", color = DarkOnSurfaceVariant) },
+                        trailingIcon = {
+                            IconButton(onClick = { isSearching = false; searchQuery = "" }) {
+                                Icon(Icons.Default.Close, contentDescription = "Close", tint = DarkOnSurface)
+                            }
+                        },
+                        singleLine = true,
+                        modifier = Modifier.weight(1f),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedContainerColor = DarkSurface,
+                            unfocusedContainerColor = DarkSurface,
+                            focusedBorderColor = BrandLime,
+                            unfocusedBorderColor = DarkBorder,
+                            focusedTextColor = DarkOnSurface,
+                            unfocusedTextColor = DarkOnSurface
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                } else {
+                    Text(
+                        text = "Lists",
+                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
+                        color = DarkOnSurface
+                    )
 
-            if (plannedLists.isEmpty()) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        IconButton(
+                            onClick = { isSearching = true },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(DarkSurfaceVariant)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Search,
+                                contentDescription = "Search",
+                                tint = DarkOnSurface
+                            )
+                        }
+
+                        IconButton(
+                            onClick = { showAddDialog = true },
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(BrandLime)
+                                .testTag("add_planned_list_fab")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "New List",
+                                tint = DarkBackground
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Segmented Tabs [ My Lists ] vs [ Completed ]
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(DarkSurfaceVariant)
+                    .padding(4.dp)
+            ) {
+                listOf("My Lists" to draftLists.size, "Completed" to completedLists.size).forEachIndexed { index, (label, count) ->
+                    val isSel = selectedTab == index
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (isSel) BrandLime else Color.Transparent)
+                            .clickable { selectedTab = index }
+                            .padding(vertical = 10.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = "$label ($count)",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                            color = if (isSel) DarkBackground else DarkOnSurfaceVariant
+                        )
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            val currentDisplayLists = if (selectedTab == 0) draftLists else completedLists
+
+            if (currentDisplayLists.isEmpty()) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
                         .weight(1f),
                     contentAlignment = Alignment.Center
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Icon(
                             imageVector = Icons.AutoMirrored.Outlined.PlaylistAddCheck,
                             contentDescription = null,
-                            tint = MaterialTheme.colorScheme.secondary.copy(alpha = 0.5f),
+                            tint = DarkOnSurfaceVariant.copy(alpha = 0.5f),
                             modifier = Modifier.size(64.dp)
                         )
+                        Spacer(modifier = Modifier.height(12.dp))
                         Text(
-                            text = "No planned lists created yet.",
-                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Medium),
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            text = if (selectedTab == 0) "No active lists" else "No completed lists",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                            color = DarkOnSurface
                         )
+                        Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Tap the '+' button below to start.",
+                            text = if (selectedTab == 0) "Tap the '+' button above to create a shopping list." else "Completed checklists will appear here.",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
+                            color = DarkOnSurfaceVariant
                         )
                     }
                 }
             } else {
-                val draftLists = plannedLists.filter { it.plannedList.status != "COMPLETED" }
-                val completedLists = plannedLists.filter { it.plannedList.status == "COMPLETED" }
-
                 LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.weight(1f)
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f),
+                    contentPadding = PaddingValues(bottom = 24.dp)
                 ) {
-                    if (draftLists.isNotEmpty()) {
-                        items(draftLists, key = { it.plannedList.id }) { item ->
-                            PlannedListCard(
-                                listWithItems = item,
-                                categories = categories,
-                                onClick = { onSelectList(item.plannedList.id) },
-                                onDelete = { onDeleteList(item.plannedList) },
-                                onClone = {
-                                    onDuplicateList(item, "${item.plannedList.name} (Copy)")
-                                }
-                            )
-                        }
-                    }
-
-                    if (completedLists.isNotEmpty()) {
-                        item {
-                            Surface(
-                                onClick = { isCompletedSectionExpanded = !isCompletedSectionExpanded },
-                                color = Color.Transparent,
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 8.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
-                                ) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Default.CheckCircle,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.secondary
-                                        )
-                                        Text(
-                                            text = "Completed Lists (${completedLists.size})",
-                                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = MaterialTheme.colorScheme.onBackground
-                                        )
-                                    }
-                                    Icon(
-                                        imageVector = if (isCompletedSectionExpanded) Icons.Default.ExpandLess else Icons.Default.ExpandMore,
-                                        contentDescription = if (isCompletedSectionExpanded) "Collapse" else "Expand",
-                                        tint = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                }
+                    items(currentDisplayLists, key = { it.plannedList.id }) { item ->
+                        PlannedListCard(
+                            listWithItems = item,
+                            categories = categories,
+                            onClick = { onSelectList(item.plannedList.id) },
+                            onDelete = { onDeleteList(item.plannedList) },
+                            onClone = {
+                                onDuplicateList(item, "${item.plannedList.name} (Copy)")
                             }
-                        }
-
-                        if (isCompletedSectionExpanded) {
-                            items(completedLists, key = { it.plannedList.id }) { item ->
-                                PlannedListCard(
-                                    listWithItems = item,
-                                    categories = categories,
-                                    onClick = { onSelectList(item.plannedList.id) },
-                                    onDelete = { onDeleteList(item.plannedList) },
-                                    onClone = {
-                                        onDuplicateList(item, "${item.plannedList.name} (Copy)")
-                                    }
-                                )
-                            }
-                        }
+                        )
                     }
                 }
             }
@@ -253,115 +286,163 @@ fun PlannedMasterScreen(
     }
 
     if (showAddDialog) {
-        val groceryCategory = remember(categories) {
-            categories.find { it.name.lowercase() == "groceries" } ?: categories.firstOrNull()
-        }
-        var selectedCategoryId by remember { mutableStateOf<Long?>(groceryCategory?.id) }
-        var categoryDropdownExpanded by remember { mutableStateOf(false) }
-        val selectedCategory = remember(categories, selectedCategoryId) {
-            categories.find { it.id == selectedCategoryId }
-        }
+        CreateListDialog(
+            categories = categories,
+            onDismiss = { showAddDialog = false },
+            onCreate = { name, cap, categoryId ->
+                onAddList(name, cap, categoryId)
+                showAddDialog = false
+            }
+        )
+    }
+}
 
-        AlertDialog(
-            onDismissRequest = { showAddDialog = false },
-            title = { Text("Create Planned List") },
-            text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    OutlinedTextField(
-                        value = listName,
-                        onValueChange = { listName = it },
-                        label = { Text("List Name (e.g., Weekly Groceries)") },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                    OutlinedTextField(
-                        value = budgetCapStr,
-                        onValueChange = { input ->
-                            if (input.isEmpty() || input.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
-                                budgetCapStr = input
-                            }
-                        },
-                        label = { Text("Optional Budget Cap (₹)") },
-                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth()
-                    )
+@Composable
+fun CreateListDialog(
+    categories: List<Category>,
+    onDismiss: () -> Unit,
+    onCreate: (String, Double?, Long?) -> Unit
+) {
+    var listName by remember { mutableStateOf("") }
+    var description by remember { mutableStateOf("") }
+    var selectedPresetIndex by remember { mutableStateOf(0) }
 
-                    Box(modifier = Modifier.fillMaxWidth()) {
-                        ExposedDropdownMenuBox(
-                            expanded = categoryDropdownExpanded,
-                            onExpandedChange = { categoryDropdownExpanded = !categoryDropdownExpanded }
-                        ) {
-                            OutlinedTextField(
-                                value = selectedCategory?.name ?: "Select Category",
-                                onValueChange = {},
-                                readOnly = true,
-                                label = { Text("Default Category Association") },
-                                trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryDropdownExpanded) },
-                                leadingIcon = {
-                                    Icon(
-                                        imageVector = getIconVector(selectedCategory?.iconResName ?: "shopping_cart"),
-                                        contentDescription = null,
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                },
+    val presets = listOf(
+        Triple("Groceries", Icons.Default.ShoppingCart, Color(0xFF22C55E)),
+        Triple("Dining / BBQ", Icons.Default.Restaurant, Color(0xFFF59E0B)),
+        Triple("Home Essentials", Icons.Default.Home, Color(0xFF3B82F6)),
+        Triple("Office Supplies", Icons.Default.Work, Color(0xFFA855F7)),
+        Triple("Gift Ideas", Icons.Default.CardGiftcard, Color(0xFFEC4899))
+    )
+
+    Dialog(onDismissRequest = onDismiss) {
+        Card(
+            shape = RoundedCornerShape(24.dp),
+            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            border = BorderStroke(1.dp, DarkBorder),
+            modifier = Modifier.fillMaxWidth()
+        ) {
+            Column(
+                modifier = Modifier.padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
+                // Header
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "Create List",
+                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
+                        color = DarkOnSurface
+                    )
+                    IconButton(
+                        onClick = onDismiss,
+                        modifier = Modifier.size(32.dp)
+                    ) {
+                        Icon(Icons.Default.Close, contentDescription = "Close", tint = DarkOnSurfaceVariant)
+                    }
+                }
+
+                // List Name Input
+                OutlinedTextField(
+                    value = listName,
+                    onValueChange = { listName = it },
+                    label = { Text("List Name", color = DarkOnSurfaceVariant) },
+                    placeholder = { Text("e.g. Monthly Groceries", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = DarkSurfaceElevated,
+                        unfocusedContainerColor = DarkSurfaceElevated,
+                        focusedBorderColor = BrandLime,
+                        unfocusedBorderColor = DarkBorder,
+                        focusedTextColor = DarkOnSurface,
+                        unfocusedTextColor = DarkOnSurface
+                    )
+                )
+
+                // Icon & Color Preset Selector
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Icon & Category",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        presets.forEachIndexed { index, (label, icon, color) ->
+                            val isSel = selectedPresetIndex == index
+                            Box(
                                 modifier = Modifier
-                                    .menuAnchor(type = MenuAnchorType.PrimaryNotEditable, enabled = true)
-                                    .fillMaxWidth(),
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                            ExposedDropdownMenu(
-                                expanded = categoryDropdownExpanded,
-                                onDismissRequest = { categoryDropdownExpanded = false }
+                                    .size(44.dp)
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSel) color else color.copy(alpha = 0.2f))
+                                    .clickable { selectedPresetIndex = index }
+                                    .padding(8.dp),
+                                contentAlignment = Alignment.Center
                             ) {
-                                categories.forEach { cat ->
-                                    DropdownMenuItem(
-                                        text = {
-                                            Row(
-                                                verticalAlignment = Alignment.CenterVertically,
-                                                horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                            ) {
-                                                Icon(
-                                                    imageVector = getIconVector(cat.iconResName),
-                                                    contentDescription = null,
-                                                    modifier = Modifier.size(18.dp)
-                                                )
-                                                Text(cat.name)
-                                            }
-                                        },
-                                        onClick = {
-                                            selectedCategoryId = cat.id
-                                            categoryDropdownExpanded = false
-                                        }
-                                    )
-                                }
+                                Icon(
+                                    imageVector = icon,
+                                    contentDescription = label,
+                                    tint = if (isSel) Color.White else color,
+                                    modifier = Modifier.size(24.dp)
+                                )
                             }
                         }
                     }
                 }
-            },
-            confirmButton = {
+
+                // Description (Optional)
+                OutlinedTextField(
+                    value = description,
+                    onValueChange = { description = it },
+                    label = { Text("Description (optional)", color = DarkOnSurfaceVariant) },
+                    placeholder = { Text("e.g. Groceries for the month", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedContainerColor = DarkSurfaceElevated,
+                        unfocusedContainerColor = DarkSurfaceElevated,
+                        focusedBorderColor = BrandLime,
+                        unfocusedBorderColor = DarkBorder,
+                        focusedTextColor = DarkOnSurface,
+                        unfocusedTextColor = DarkOnSurface
+                    )
+                )
+
+                // Create List CTA Button
                 Button(
                     onClick = {
                         if (listName.isNotBlank()) {
-                            val cap = budgetCapStr.toDoubleOrNull()
-                            onAddList(listName.trim(), cap, selectedCategoryId)
-                            listName = ""
-                            budgetCapStr = ""
-                            showAddDialog = false
+                            val matchedCat = categories.find { it.name.contains(presets[selectedPresetIndex].first, ignoreCase = true) }
+                            onCreate(listName.trim(), null, matchedCat?.id)
                         }
                     },
-                    enabled = listName.isNotBlank()
+                    enabled = listName.isNotBlank(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = BrandLime,
+                        contentColor = DarkBackground,
+                        disabledContainerColor = DarkSurfaceVariant,
+                        disabledContentColor = DarkOnSurfaceVariant.copy(alpha = 0.4f)
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(50.dp)
                 ) {
-                    Text("Create")
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { showAddDialog = false }) {
-                    Text("Cancel")
+                    Text(
+                        text = "Create List",
+                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.ExtraBold)
+                    )
                 }
             }
-        )
+        }
     }
 }
 
@@ -376,158 +457,98 @@ fun PlannedListCard(
     val totalAmount = listWithItems.items.sumOf { it.price * it.quantity }
     val checkedCount = listWithItems.items.count { it.isChecked }
     val totalCount = listWithItems.items.size
+    val uncheckedCount = totalCount - checkedCount
     val isCompleted = listWithItems.plannedList.status == "COMPLETED"
-
-    val date = Date(listWithItems.plannedList.createdTimestamp)
-    val formatter = remember { SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()) }
-    val dateString = formatter.format(date)
+    var menuExpanded by remember { mutableStateOf(false) }
 
     val associatedCat = remember(categories, listWithItems.plannedList.categoryId) {
         categories.find { it.id == listWithItems.plannedList.categoryId }
     }
+    val catColor = CategoryColors.getCategoryColor(associatedCat?.name ?: listWithItems.plannedList.name)
 
     Card(
         onClick = onClick,
-        shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isCompleted) {
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
-            } else {
-                MaterialTheme.colorScheme.surface
-            }
-        ),
-        border = androidx.compose.foundation.BorderStroke(
-            1.dp, 
-            if (isCompleted) MaterialTheme.colorScheme.outline.copy(alpha = 0.15f)
-            else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
-        ),
+        shape = RoundedCornerShape(18.dp),
+        colors = CardDefaults.cardColors(containerColor = DarkSurface),
+        border = BorderStroke(1.dp, DarkBorder),
         modifier = Modifier.fillMaxWidth()
     ) {
-        Column(modifier = Modifier.padding(16.dp)) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.Top
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+                modifier = Modifier.weight(1f)
             ) {
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = listWithItems.plannedList.name,
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                            color = if (isCompleted) MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f) else MaterialTheme.colorScheme.onSurface,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        
-                        // Status badge
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(
-                                    if (isCompleted) MaterialTheme.colorScheme.surfaceVariant 
-                                    else MaterialTheme.colorScheme.primaryContainer
-                                  )
-                                .padding(horizontal = 6.dp, vertical = 2.dp)
-                        ) {
-                            Text(
-                                text = if (isCompleted) "Completed" else "Draft",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = if (isCompleted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.onPrimaryContainer
-                            )
-                        }
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        if (associatedCat != null) {
-                            Icon(
-                                imageVector = getIconVector(associatedCat.iconResName),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.secondary,
-                                modifier = Modifier.size(14.dp)
-                            )
-                            Text(
-                                text = associatedCat.name,
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.secondary
-                            )
-                            Text(
-                                text = "•",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.4f)
-                            )
-                        }
-                        Text(
-                            text = dateString,
-                            style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                        )
-                    }
+                // Category/List Icon Badge
+                Box(
+                    modifier = Modifier
+                        .size(44.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(catColor.copy(alpha = 0.2f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = getIconVector(associatedCat?.iconResName ?: "shopping_cart"),
+                        contentDescription = null,
+                        tint = catColor,
+                        modifier = Modifier.size(22.dp)
+                    )
                 }
 
-                Row {
-                    IconButton(onClick = onClone) {
-                        Icon(
-                            imageVector = Icons.Default.CopyAll,
-                            contentDescription = "Duplicate List",
-                            tint = MaterialTheme.colorScheme.secondary
-                        )
-                    }
-                    IconButton(onClick = onDelete) {
-                        Icon(
-                            imageVector = Icons.Default.Delete,
-                            contentDescription = "Delete List",
-                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.8f)
-                        )
-                    }
+                Column {
+                    Text(
+                        text = listWithItems.plannedList.name,
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Spacer(modifier = Modifier.height(2.dp))
+                    Text(
+                        text = "$totalCount items • $uncheckedCount unchecked",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DarkOnSurfaceVariant
+                    )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
-            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
-            Spacer(modifier = Modifier.height(12.dp))
-
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column {
-                    Text(
-                        text = "Items Checked",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    Text(
-                        text = "$checkedCount / $totalCount",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onSurface
+            // 3-dots Menu
+            Box {
+                IconButton(onClick = { menuExpanded = true }) {
+                    Icon(
+                        imageVector = Icons.Default.MoreVert,
+                        contentDescription = "Options",
+                        tint = DarkOnSurfaceVariant
                     )
                 }
 
-                Column(horizontalAlignment = Alignment.End) {
-                    Text(
-                        text = if (isCompleted) "Final Total" else "Running Total",
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.secondary
-                    )
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(
-                            text = "₹${"%,.2f".format(totalAmount)}",
-                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Black),
-                            color = if (isCompleted) MaterialTheme.colorScheme.secondary else MaterialTheme.colorScheme.primary
-                        )
-                        if (listWithItems.plannedList.budgetCap != null) {
-                            Text(
-                                text = " / ₹${listWithItems.plannedList.budgetCap}",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f)
-                            )
+                DropdownMenu(
+                    expanded = menuExpanded,
+                    onDismissRequest = { menuExpanded = false },
+                    modifier = Modifier.background(DarkSurfaceElevated)
+                ) {
+                    DropdownMenuItem(
+                        text = { Text("Duplicate List", color = DarkOnSurface) },
+                        leadingIcon = { Icon(Icons.Default.CopyAll, contentDescription = null, tint = BrandLime) },
+                        onClick = {
+                            menuExpanded = false
+                            onClone()
                         }
-                    }
+                    )
+                    DropdownMenuItem(
+                        text = { Text("Delete List", color = DarkError) },
+                        leadingIcon = { Icon(Icons.Default.Delete, contentDescription = null, tint = DarkError) },
+                        onClick = {
+                            menuExpanded = false
+                            onDelete()
+                        }
+                    )
                 }
             }
         }
@@ -722,15 +743,41 @@ fun PlannedDetailScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
             if (!isCompleted) {
+                val handleAddItem: () -> Unit = {
+                    if (itemName.isNotBlank()) {
+                        val trimmed = itemName.trim()
+                        val regexWithPrice = Regex("""^(.*?)\s+(\d+(?:\.\d{1,2})?)$""")
+                        val match = regexWithPrice.find(trimmed)
+
+                        var finalName = trimmed
+                        var finalPrice = itemPriceStr.toDoubleOrNull() ?: estimatedPrice ?: 0.0
+
+                        if (itemPriceStr.isBlank() && match != null) {
+                            val potentialName = match.groupValues[1].trim()
+                            val potentialPrice = match.groupValues[2].toDoubleOrNull()
+                            if (potentialName.isNotEmpty() && potentialPrice != null) {
+                                finalName = potentialName
+                                finalPrice = potentialPrice
+                            }
+                        }
+
+                        onAddItem(listId, finalName, itemQty, finalPrice)
+                        itemName = ""
+                        itemQty = 1
+                        itemPriceStr = ""
+                    }
+                }
+
                 // Add Item Section Card
                 Card(
                     shape = RoundedCornerShape(16.dp),
-                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(1.dp)),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = BorderStroke(1.dp, DarkBorder),
                     modifier = Modifier.fillMaxWidth()
                 ) {
                     Column(
-                        modifier = Modifier.padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                        modifier = Modifier.padding(14.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -740,8 +787,13 @@ fun PlannedDetailScreen(
                             OutlinedTextField(
                                 value = itemName,
                                 onValueChange = { itemName = it },
-                                label = { Text("Item Name (e.g., Milk)") },
+                                label = { Text("Quick Item (e.g. Milk 60)") },
                                 singleLine = true,
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Text,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { handleAddItem() }),
                                 modifier = Modifier.weight(1f)
                             )
 
@@ -754,11 +806,12 @@ fun PlannedDetailScreen(
                                     onClick = { if (itemQty > 1) itemQty-- },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(Icons.Default.RemoveCircleOutline, null, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.RemoveCircleOutline, null, modifier = Modifier.size(20.dp), tint = DarkOnSurfaceVariant)
                                 }
                                 Text(
                                     text = itemQty.toString(),
                                     style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = DarkOnSurface,
                                     modifier = Modifier.widthIn(min = 20.dp),
                                     textAlign = TextAlign.Center
                                 )
@@ -766,7 +819,7 @@ fun PlannedDetailScreen(
                                     onClick = { itemQty++ },
                                     modifier = Modifier.size(32.dp)
                                 ) {
-                                    Icon(Icons.Default.AddCircleOutline, null, modifier = Modifier.size(20.dp))
+                                    Icon(Icons.Default.AddCircleOutline, null, modifier = Modifier.size(20.dp), tint = BrandLime)
                                 }
                             }
                         }
@@ -785,26 +838,28 @@ fun PlannedDetailScreen(
                                 },
                                 label = { Text("Est. Price (₹)") },
                                 placeholder = { Text("0.00") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                keyboardOptions = KeyboardOptions(
+                                    keyboardType = KeyboardType.Decimal,
+                                    imeAction = ImeAction.Done
+                                ),
+                                keyboardActions = KeyboardActions(onDone = { handleAddItem() }),
                                 singleLine = true,
                                 modifier = Modifier.weight(1f)
                             )
 
                             Button(
-                                onClick = {
-                                    if (itemName.isNotBlank()) {
-                                        val price = itemPriceStr.toDoubleOrNull() ?: estimatedPrice ?: 0.0
-                                        onAddItem(listId, itemName.trim(), itemQty, price)
-                                        itemName = ""
-                                        itemQty = 1
-                                        itemPriceStr = ""
-                                    }
-                                },
+                                onClick = handleAddItem,
                                 enabled = itemName.isNotBlank(),
-                                shape = RoundedCornerShape(8.dp),
-                                modifier = Modifier.height(50.dp)
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = BrandLime,
+                                    contentColor = Color.Black
+                                ),
+                                modifier = Modifier.height(52.dp)
                             ) {
-                                Text("Add")
+                                Icon(Icons.Default.Add, null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("Add", fontWeight = FontWeight.Bold)
                             }
                         }
 
@@ -817,14 +872,14 @@ fun PlannedDetailScreen(
                                 Icon(
                                     imageVector = Icons.Default.History,
                                     contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.secondary,
+                                    tint = BrandLime,
                                     modifier = Modifier.size(14.dp)
                                 )
                                 Spacer(modifier = Modifier.width(4.dp))
                                 Text(
-                                    text = "Last paid: ₹${"%,.2f".format(estimatedPrice)} (Tap Add to apply)",
+                                    text = "Last paid: ₹${"%,.2f".format(estimatedPrice)} (Auto-applied if price is empty)",
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.secondary
+                                    color = BrandLime
                                 )
                             }
                         }

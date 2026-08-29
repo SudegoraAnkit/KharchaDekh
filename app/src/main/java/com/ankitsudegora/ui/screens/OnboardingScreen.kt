@@ -1,6 +1,7 @@
 package com.ankitsudegora.ui.screens
 
 import androidx.compose.animation.*
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -17,10 +18,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ankitsudegora.R
 
 @Composable
 fun OnboardingScreen(
@@ -56,11 +59,12 @@ fun OnboardingScreen(
                 horizontalAlignment = Alignment.CenterHorizontally,
                 modifier = Modifier.padding(top = 28.dp)
             ) {
-                Icon(
-                    imageVector = Icons.Default.Shield,
-                    contentDescription = "Security Shield",
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(68.dp)
+                Image(
+                    painter = painterResource(id = R.drawable.app_logo),
+                    contentDescription = "KharchaDekh Logo",
+                    modifier = Modifier
+                        .size(76.dp)
+                        .clip(RoundedCornerShape(20.dp))
                 )
                 
                 Spacer(modifier = Modifier.height(16.dp))

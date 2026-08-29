@@ -61,3 +61,13 @@ Stats v1.1.2.4: Added billing cycle filters (up to 5 cycles & All Time), metrics
 ------------------------------------------------------------------------
 v1.2.0: Added offline-first multi-currency support tracking in 9 currencies (USD, INR, EUR, etc.) with automatic background rate sync over Wi-Fi. Stats, charts, budgets, and discretionary allowances convert dynamically to your primary currency. Fixed SMS billing alerts parsing bug.
 
+------------------------------------------------------------------------
+7. WHAT'S NEW IN v2.0.0.0 (Max 300 chars)
+------------------------------------------------------------------------
+v2.0.0.0 brings a complete dark-first visual redesign:
+• Rapid Review: 1-tap confirmation with queue auto-advancing
+• Redesigned Dashboard: Hero spending cards & Today's Outflow shortcut
+• Quick Shopping Lists: Type items & prices in one line with keyboard Enter
+• High-contrast financial typography
+
+
