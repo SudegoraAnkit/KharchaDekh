@@ -322,6 +322,9 @@ interface CreditCardDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCard(card: CreditCard): Long
 
+    @Update
+    suspend fun updateCard(card: CreditCard)
+
     @Delete
     suspend fun deleteCard(card: CreditCard)
 }

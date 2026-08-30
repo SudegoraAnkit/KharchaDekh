@@ -4,17 +4,18 @@ import re
 import shutil
 import subprocess
 
-def get_version_name():
+def get_version_info():
     gradle_path = os.path.join("app", "build.gradle.kts")
     if not os.path.exists(gradle_path):
         print(f"Error: Gradle file not found at {gradle_path}")
-        return "unknown"
+        return ("unknown", "unknown")
     with open(gradle_path, "r", encoding="utf-8") as f:
         content = f.read()
-    match = re.search(r'versionName\s*=\s*"([^"]+)"', content)
-    if match:
-        return match.group(1)
-    return "unknown"
+    vname_match = re.search(r'versionName\s*=\s*"([^"]+)"', content)
+    vcode_match = re.search(r'versionCode\s*=\s*(\d+)', content)
+    vname = vname_match.group(1) if vname_match else "unknown"
+    vcode = vcode_match.group(1) if vcode_match else "unknown"
+    return (vname, vcode)
 
 def run_build(store_pw, key_pw):
     print("Running Gradle assembleRelease and bundleRelease...")
@@ -61,12 +62,15 @@ def main():
     store_pw = os.getenv("STORE_PASSWORD", "password")
     key_pw = os.getenv("KEY_PASSWORD", "password")
     
-    version = get_version_name()
-    print(f"Detected App Version: {version}")
+    version_name, version_code = get_version_info()
+    print(f"==========================================")
+    print(f" Building Release Version: {version_name}")
+    print(f" Version Code (Play Store): {version_code}")
+    print(f"==========================================")
     
     if run_build(store_pw, key_pw):
-        if copy_binaries(version):
-            print("Release build and archiving completed successfully!")
+        if copy_binaries(version_name):
+            print(f"Release build and archiving for v{version_name} (code {version_code}) completed successfully!")
             sys.exit(0)
     print("Build or archiving failed.")
     sys.exit(1)

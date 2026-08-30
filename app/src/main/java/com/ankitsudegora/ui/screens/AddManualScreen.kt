@@ -1,15 +1,20 @@
 package com.ankitsudegora.ui.screens
 
 import android.app.DatePickerDialog
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.automirrored.filled.*
@@ -18,9 +23,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
@@ -44,6 +52,7 @@ fun AddManualScreen(
     isMultiCurrencyEnabled: Boolean,
     primaryCurrency: String,
     onSaveTransaction: (amount: Double, type: String, merchant: String, categoryId: Long?, notes: String?, paymentMethod: String, timestamp: Long, recurringFrequency: String?, subCategory: String?, paidViaCcId: Long?, repaidCcId: Long?, selectedRepaidTxnIds: List<Long>, currency: String) -> Unit,
+    onAddCreditCard: (String) -> Unit = {},
     onNavigateBack: () -> Unit
 ) {
     val context = LocalContext.current
@@ -54,568 +63,205 @@ fun AddManualScreen(
     var notes by remember { mutableStateOf("") }
     var transactionType by remember { mutableStateOf("DEBIT") } // "DEBIT" or "CREDIT"
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
-    var paymentMethod by remember { mutableStateOf("UPI") } // "CASH", "UPI", "CARD", "NETBANKING"
+    var paymentMethod by remember { mutableStateOf("UPI") } // "UPI", "CARD", "CASH", "NETBANKING"
     var selectedCurrency by remember(primaryCurrency) { mutableStateOf(primaryCurrency) }
 
     var isRecurringChecked by remember { mutableStateOf(false) }
-    var selectedFrequency by remember { mutableStateOf("MONTHLY") }
-    var subCategory by remember { mutableStateOf<String?>(null) }
-
-    // Paid via Credit Card Selector
-    var paidViaCcChecked by remember { mutableStateOf(false) }
+    var recurringFreq by remember { mutableStateOf("MONTHLY") }
+    var subCategory by remember { mutableStateOf("") }
     var selectedCcId by remember { mutableStateOf<Long?>(null) }
-    var ccDropdownExpanded by remember { mutableStateOf(false) }
+    var repaidCcId by remember { mutableStateOf<Long?>(null) }
+    var selectedRepaidTxnIds by remember { mutableStateOf<List<Long>>(emptyList()) }
 
-    // Repayment fields
-    var selectedRepaidCcId by remember { mutableStateOf<Long?>(null) }
-    var repaymentCcDropdownExpanded by remember { mutableStateOf(false) }
-    var selectedRepaidTxnIds by remember { mutableStateOf(setOf<Long>()) }
+    var timestamp by remember { mutableStateOf(System.currentTimeMillis()) }
+    val dateDisplayFormat = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
+    val isToday = remember(timestamp) {
+        val todayCal = Calendar.getInstance()
+        val txnCal = Calendar.getInstance().apply { timeInMillis = timestamp }
+        todayCal.get(Calendar.YEAR) == txnCal.get(Calendar.YEAR) &&
+                todayCal.get(Calendar.DAY_OF_YEAR) == txnCal.get(Calendar.DAY_OF_YEAR)
+    }
 
+    // Expandable accordion states
+    var isPaidViaExpanded by remember { mutableStateOf(false) }
+    var isNotesExpanded by remember { mutableStateOf(false) }
+    var isMoreOptionsExpanded by remember { mutableStateOf(false) }
+    var showAllCategoriesModal by remember { mutableStateOf(false) }
+    var showAddCardDialog by remember { mutableStateOf(false) }
+
+    // Pre-select first category if none selected
+    LaunchedEffect(categories) {
+        if (selectedCategoryId == null && categories.isNotEmpty()) {
+            selectedCategoryId = categories.first().id
+        }
+    }
+
+    // Auto-select first credit card if available (M5)
     LaunchedEffect(creditCards) {
         if (selectedCcId == null && creditCards.isNotEmpty()) {
             selectedCcId = creditCards.first().id
         }
-        if (selectedRepaidCcId == null && creditCards.isNotEmpty()) {
-            selectedRepaidCcId = creditCards.first().id
-        }
     }
 
-    val creditCardPaymentCategory = remember(categories) {
-        categories.find { it.name == "CreditCard Payment" }
-    }
+    // Top 3 suggested categories based on merchant matching or common usage (C4)
+    val topSuggestedCategories = remember(categories, merchant, allTransactions) {
+        val matched = if (merchant.isNotBlank()) {
+            val q = merchant.lowercase()
+            // Check past merchant usage first
+            val pastCategory = allTransactions
+                .filter { it.transaction.merchant.contains(q, ignoreCase = true) }
+                .mapNotNull { it.category }
+                .distinctBy { it.id }
 
-    val isCcRepaymentSelected = selectedCategoryId == creditCardPaymentCategory?.id && transactionType == "DEBIT"
-
-    // DateTime configuration
-    var selectedTimestamp by remember { mutableStateOf(System.currentTimeMillis()) }
-    val calendar = remember { Calendar.getInstance() }
-    
-    val filteredCategories = remember(categories, transactionType) {
-        val inflowNames = setOf("salary", "refund", "interest", "other inflow")
-        if (transactionType == "CREDIT") {
-            categories.filter { it.name.lowercase() in inflowNames }
-        } else {
-            categories.filter { it.name.lowercase() !in inflowNames }
-        }
-    }
-
-    LaunchedEffect(filteredCategories) {
-        if (selectedCategoryId == null || filteredCategories.none { it.id == selectedCategoryId }) {
-            selectedCategoryId = filteredCategories.firstOrNull { it.name.lowercase() != "others" }?.id ?: filteredCategories.firstOrNull()?.id
-        }
-    }
-
-    LaunchedEffect(selectedCategoryId) {
-        subCategory = null
-    }
-
-    val subCategoryOptions = remember(selectedCategoryId, categories) {
-        val selectedCat = categories.find { it.id == selectedCategoryId }
-        when (selectedCat?.name?.lowercase()) {
-            "interest" -> listOf("Savings Interest", "FD Interest", "PPF Interest", "Other Interest")
-            "rent & maintenance" -> listOf("Home Rent", "Office Rent", "Vehicle Rent", "Equipment Rent")
-            "sip/invest" -> listOf("Mutual Funds", "Stocks / Equity", "Provident Fund", "Gold / Real Estate", "Other Investment")
-            "creditcard payment" -> listOf("HDFC Card", "SBI Card", "ICICI Card", "Other Credit Card")
-            "courses" -> listOf("Professional Skills", "Academic", "Language / Hobby", "Certifications")
-            "home maintenance" -> listOf("Repairs & Plumb", "Painting / Decor", "Cleaning Services", "Society Maintenance")
-            "subscriptions" -> listOf("OTT / Streaming", "Software / Apps", "Gym / Health", "Newspaper / News")
-            "domestic help" -> listOf("Maid Salary", "Cook Salary", "Driver Salary", "Security Guard")
-            "insurance" -> listOf("Health Insurance", "Life Insurance", "Car / Bike Insurance", "Home/Home Contents")
-            "taxes" -> listOf("Income Tax", "Property Tax", "Professional Tax", "Road Tax")
-            "pets" -> listOf("Pet Food", "Vet / Medicines", "Toys & Grooming", "Pet Boarding")
-            "gifts & charity" -> listOf("Festival Gifts", "Wedding Gifts", "NGO / Donations", "Birthday Gifts")
-            "cashback & rewards" -> listOf("UPI Scratch Card", "Credit Card Cashback", "Refund Reward", "Referral Bonus")
-            "freelance/side hustle" -> listOf("Consulting Work", "Writing/Content", "Software Gig", "Asset Sale")
-            else -> emptyList()
-        }
-    }
-
-    val dateFormater = remember { SimpleDateFormat("dd MMM yyyy", Locale.getDefault()) }
-
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(DarkBackground)
-            .verticalScroll(scrollState)
-            .padding(20.dp),
-        verticalArrangement = Arrangement.spacedBy(16.dp)
-    ) {
-        // Core Top Bar
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            IconButton(
-                onClick = onNavigateBack,
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(DarkSurfaceVariant)
-                    .testTag("manual_back_btn")
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Close,
-                    contentDescription = "Close",
-                    tint = DarkOnSurface
-                )
+            val keywordMatched = categories.filter { cat ->
+                cat.name.lowercase().contains(q) ||
+                        ((q.contains("swiggy") || q.contains("zomato")) && cat.name.contains("Food", ignoreCase = true)) ||
+                        ((q.contains("bazaar") || q.contains("mart") || q.contains("grocery")) && cat.name.contains("Groceries", ignoreCase = true)) ||
+                        ((q.contains("uber") || q.contains("ola")) && cat.name.contains("Travel", ignoreCase = true))
             }
+            (pastCategory + keywordMatched).distinctBy { it.id }
+        } else emptyList()
 
-            Text(
-                text = if (transactionType == "DEBIT") "Add Expense" else "Add Income",
-                style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                color = DarkOnSurface
-            )
+        (matched + categories).distinctBy { it.id }.take(3)
+    }
 
-            IconButton(
-                onClick = {
-                    val amt = amountStr.toDoubleOrNull() ?: 0.0
-                    if (amt > 0 && merchant.isNotBlank()) {
-                        val freq = if (isRecurringChecked) selectedFrequency else null
-                        val ccId = if (paidViaCcChecked && transactionType == "DEBIT" && !isCcRepaymentSelected) selectedCcId else null
-                        val repCcId = if (isCcRepaymentSelected) selectedRepaidCcId else null
-                        val repTxnIds = if (isCcRepaymentSelected) selectedRepaidTxnIds.toList() else emptyList()
+    // Validation & Save Handler
+    val canSave = remember(amountStr) {
+        val amt = amountStr.toDoubleOrNull()
+        amt != null && amt > 0.0
+    }
 
-                        onSaveTransaction(
-                            amt,
-                            transactionType,
-                            merchant.trim(),
-                            selectedCategoryId,
-                            notes.trim().ifBlank { null },
-                            paymentMethod,
-                            selectedTimestamp,
-                            freq,
-                            subCategory,
-                            ccId,
-                            repCcId,
-                            repTxnIds,
-                            selectedCurrency
-                        )
-                    }
-                },
-                enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),
-                modifier = Modifier
-                    .size(40.dp)
-                    .clip(CircleShape)
-                    .background(if (amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank()) BrandLime else DarkSurfaceVariant)
-            ) {
-                Icon(
-                    imageVector = Icons.Default.Check,
-                    contentDescription = "Save",
-                    tint = if (amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank()) DarkBackground else DarkOnSurfaceVariant
-                )
-            }
-        }
+    fun handleSave() {
+        val amt = amountStr.toDoubleOrNull() ?: return
+        if (amt <= 0.0) return
 
-        // Expense / Income Segmented Tabs
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(12.dp))
-                .background(DarkSurfaceVariant)
-                .padding(4.dp)
-        ) {
-            listOf("DEBIT" to "Expense", "CREDIT" to "Income").forEach { (typeKey, label) ->
-                val isSel = transactionType == typeKey
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(if (isSel) BrandLime else Color.Transparent)
-                        .clickable { transactionType = typeKey }
-                        .padding(vertical = 10.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = label,
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = if (isSel) DarkBackground else DarkOnSurfaceVariant
-                    )
-                }
-            }
-        }
-
-
-        // Amount Display & Input Card
-        Card(
-            shape = RoundedCornerShape(24.dp),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            Column(
-                modifier = Modifier.padding(20.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Text(
-                    text = if (transactionType == "DEBIT") "Amount Spent" else "Amount Received",
-                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
-                    color = DarkOnSurfaceVariant
-                )
-                Spacer(modifier = Modifier.height(10.dp))
-
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (isMultiCurrencyEnabled) {
-                        var currencyDropdownExpanded by remember { mutableStateOf(false) }
-                        val currencies = listOf("INR", "USD", "EUR", "GBP", "JPY", "AED", "AUD", "CAD", "SGD")
-
-                        Box(modifier = Modifier.wrapContentSize(Alignment.TopStart)) {
-                            Surface(
-                                onClick = { currencyDropdownExpanded = true },
-                                color = BrandLimeContainer,
-                                contentColor = BrandOnLimeContainer,
-                                shape = RoundedCornerShape(12.dp),
-                                modifier = Modifier.padding(end = 8.dp)
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
-                                ) {
-                                    Text(
-                                        text = getCurrencySymbol(selectedCurrency),
-                                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                                    )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Icon(
-                                        imageVector = Icons.Default.ArrowDropDown,
-                                        contentDescription = "Select Currency",
-                                        modifier = Modifier.size(20.dp)
-                                    )
-                                }
-                            }
-
-                            DropdownMenu(
-                                expanded = currencyDropdownExpanded,
-                                onDismissRequest = { currencyDropdownExpanded = false }
-                            ) {
-                                currencies.forEach { curr ->
-                                    DropdownMenuItem(
-                                        text = { Text("$curr (${getCurrencySymbol(curr)})", fontWeight = FontWeight.SemiBold) },
-                                        onClick = {
-                                            selectedCurrency = curr
-                                            currencyDropdownExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    } else {
-                        Text(
-                            text = getCurrencySymbol(primaryCurrency),
-                            style = MoneyTypography.HeroAmount.copy(color = BrandLime),
-                            modifier = Modifier.padding(end = 4.dp)
-                        )
-                    }
-
-                    TextField(
-                        value = amountStr,
-                        onValueChange = { input ->
-                            if (input.isEmpty() || input.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
-                                amountStr = input
-                            }
-                        },
-                        placeholder = {
-                            Text(
-                                "0",
-                                style = MoneyTypography.HeroAmount.copy(color = DarkOnSurfaceVariant.copy(alpha = 0.3f))
-                            )
-                        },
-                        keyboardOptions = KeyboardOptions(
-                            keyboardType = KeyboardType.Decimal,
-                            imeAction = ImeAction.Next
-                        ),
-                        singleLine = true,
-                        colors = TextFieldDefaults.colors(
-                            focusedContainerColor = Color.Transparent,
-                            unfocusedContainerColor = Color.Transparent,
-                            disabledContainerColor = Color.Transparent,
-                            focusedIndicatorColor = Color.Transparent,
-                            unfocusedIndicatorColor = Color.Transparent,
-                            focusedTextColor = DarkOnSurface,
-                            unfocusedTextColor = DarkOnSurface
-                        ),
-                        textStyle = MoneyTypography.HeroAmount.copy(
-                            color = DarkOnSurface,
-                            textAlign = TextAlign.Start
-                        ),
-                        modifier = Modifier
-                            .widthIn(max = 240.dp)
-                            .testTag("amount_input_field")
-                    )
-                }
-            }
-        }
-
-        // Merchant Input
-        OutlinedTextField(
-            value = merchant,
-            onValueChange = { merchant = it },
-            label = { Text("Merchant / Payee Name", color = DarkOnSurfaceVariant) },
-            placeholder = { Text("e.g. Swiggy, Uber, Amazon, D-Mart", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
-            leadingIcon = { Icon(Icons.Default.Storefront, null, tint = BrandLime) },
-            trailingIcon = if (merchant.isNotEmpty()) {
-                {
-                    IconButton(onClick = { merchant = "" }) {
-                        Icon(Icons.Default.Clear, contentDescription = "Clear", tint = DarkOnSurfaceVariant)
-                    }
-                }
-            } else null,
-            singleLine = true,
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("merchant_input_field"),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = DarkSurface,
-                unfocusedContainerColor = DarkSurface,
-                focusedBorderColor = BrandLime,
-                unfocusedBorderColor = DarkBorder,
-                focusedTextColor = DarkOnSurface,
-                unfocusedTextColor = DarkOnSurface
-            )
+        onSaveTransaction(
+            amt,
+            transactionType,
+            merchant.ifBlank { "Manual ${if (transactionType == "DEBIT") "Expense" else "Income"}" },
+            selectedCategoryId,
+            notes.ifBlank { null },
+            paymentMethod,
+            timestamp,
+            if (isRecurringChecked) recurringFreq else null,
+            subCategory.ifBlank { null },
+            if (paymentMethod == "CARD") selectedCcId else null,
+            repaidCcId,
+            selectedRepaidTxnIds,
+            selectedCurrency
         )
+        onNavigateBack()
+    }
 
-        // Date Picker Selection Row
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(DarkSurface)
-                .clickable {
-                    val year = calendar.get(Calendar.YEAR)
-                    val month = calendar.get(Calendar.MONTH)
-                    val day = calendar.get(Calendar.DAY_OF_MONTH)
-
-                    DatePickerDialog(context, { _, y, m, d ->
-                        calendar.set(Calendar.YEAR, y)
-                        calendar.set(Calendar.MONTH, m)
-                        calendar.set(Calendar.DAY_OF_MONTH, d)
-                        selectedTimestamp = calendar.timeInMillis
-                    }, year, month, day).show()
-                }
-                .padding(16.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Default.CalendarMonth,
-                    contentDescription = null,
-                    tint = BrandLime
-                )
-                Spacer(modifier = Modifier.width(12.dp))
-                Column {
-                    Text("Date of Expense", style = MaterialTheme.typography.labelSmall, color = DarkOnSurfaceVariant)
-                    Text(
-                        text = dateFormater.format(Date(selectedTimestamp)),
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                        color = DarkOnSurface
-                    )
-                }
-            }
-            Icon(Icons.Default.ArrowDropDown, null, tint = DarkOnSurfaceVariant)
-        }
-
-        // Fast Category Selector Grid Title
-        Text(
-            text = "Category",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = DarkOnSurface
-        )
-
-        // Adaptive visual Category quick-select matrix
-        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-            val columns = 4
-
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                filteredCategories.chunked(columns).forEach { row ->
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        row.forEach { cat ->
-                            val isSel = selectedCategoryId == cat.id
-                            val catColor = CategoryColors.getCategoryColor(cat.name)
-                            val containerCol = if (isSel) DarkSurfaceElevated else DarkSurface
-                            val borderCol = if (isSel) BrandLime else DarkBorder
-
-                            Card(
-                                onClick = { selectedCategoryId = cat.id },
-                                shape = RoundedCornerShape(14.dp),
-                                colors = CardDefaults.cardColors(containerColor = containerCol),
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .aspectRatio(1f)
-                                    .testTag("cat_tile_${cat.name.lowercase()}"),
-                                border = androidx.compose.foundation.BorderStroke(if (isSel) 1.5.dp else 1.dp, borderCol)
-                            ) {
-                                Column(
-                                    modifier = Modifier
-                                        .fillMaxSize()
-                                        .padding(4.dp),
-                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                    verticalArrangement = Arrangement.Center
-                                ) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(32.dp)
-                                            .clip(CircleShape)
-                                            .background(catColor.copy(alpha = if (isSel) 0.25f else 0.15f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Icon(
-                                            imageVector = getIconVector(cat.iconResName),
-                                            contentDescription = cat.name,
-                                            tint = catColor,
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
-                                    Spacer(modifier = Modifier.height(6.dp))
-                                    Text(
-                                        text = cat.name,
-                                        style = MaterialTheme.typography.labelSmall.copy(
-                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
-                                        ),
-                                        color = if (isSel) DarkOnSurface else DarkOnSurfaceVariant,
-                                        textAlign = TextAlign.Center,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis
-                                    )
-                                }
-                            }
-                        }
-                        if (row.size < columns) {
-                            repeat(columns - row.size) {
-                                Spacer(modifier = Modifier.weight(1f))
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Detail sub-category selection row
-        if (subCategoryOptions.isNotEmpty()) {
-            Text(
-                text = "Detail Subcategory",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = DarkOnSurface
-            )
-
+    Scaffold(
+        containerColor = DarkBackground,
+        topBar = {
+            // Top Bar matching Add Expense screen.jpeg: (X) left | Add Expense center | (✓) gradient right
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState())
-                    .padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    .statusBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                subCategoryOptions.forEach { option ->
-                    val isSel = subCategory == option
-                    FilterChip(
-                        selected = isSel,
-                        onClick = { subCategory = if (isSel) null else option },
-                        label = { Text(option, style = MaterialTheme.typography.labelSmall) },
-                        colors = FilterChipDefaults.filterChipColors(
-                            selectedContainerColor = BrandLimeContainer,
-                            selectedLabelColor = BrandOnLimeContainer,
-                            containerColor = DarkSurface,
-                            labelColor = DarkOnSurfaceVariant
-                        ),
-                        border = FilterChipDefaults.filterChipBorder(
-                            borderColor = if (isSel) BrandLime else DarkBorder,
-                            selectedBorderColor = BrandLime,
-                            enabled = true,
-                            selected = isSel
-                        )
-                    )
-                }
-            }
-        }
-
-        // Payment Mode Radio selection block
-        Text(
-            text = "Payment Mode",
-            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-            color = DarkOnSurface
-        )
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(DarkSurface)
-                .padding(8.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            listOf(
-                "UPI" to Icons.Default.QrCodeScanner,
-                "CARD" to Icons.Default.CreditCard,
-                "CASH" to Icons.Default.Money,
-                "NETBANKING" to Icons.Default.AccountBalance
-            ).forEach { (method, iconVec) ->
-                val isSel = paymentMethod == method
-                val tint = if (isSel) BrandLime else DarkOnSurfaceVariant
-                
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
+                IconButton(
+                    onClick = onNavigateBack,
                     modifier = Modifier
-                        .weight(1f)
-                        .clickable { paymentMethod = method }
-                        .padding(vertical = 8.dp)
-                        .testTag("pay_mode_$method")
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(DarkSurfaceVariant)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(36.dp)
-                            .clip(CircleShape)
-                            .background(if (isSel) BrandLimeContainer else DarkSurfaceVariant),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = iconVec,
-                            contentDescription = method,
-                            tint = tint,
-                            modifier = Modifier.size(18.dp)
+                    Icon(
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
+                        tint = DarkOnSurface,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+
+                Text(
+                    text = if (transactionType == "DEBIT") "Add Expense" else "Add Income",
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 18.sp
+                    ),
+                    color = DarkOnSurface
+                )
+
+                // Top Right (✓) confirm button with subtle gradient
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (canSave) Brush.horizontalGradient(listOf(BrandLime, Color(0xFF38BDF8)))
+                            else Brush.horizontalGradient(listOf(DarkSurfaceVariant, DarkSurfaceVariant))
                         )
-                    }
-                    Spacer(modifier = Modifier.height(4.dp))
+                        .clickable(enabled = canSave) { handleSave() },
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = "Confirm",
+                        tint = if (canSave) DarkBackground else DarkOnSurfaceVariant,
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        },
+        bottomBar = {
+            // Fixed Bottom CTA: [ Save Expense ] Full Width Gradient Button
+            Surface(
+                color = DarkBackground,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+            ) {
+                Button(
+                    onClick = { handleSave() },
+                    enabled = canSave,
+                    shape = RoundedCornerShape(16.dp),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.Transparent,
+                        disabledContainerColor = DarkSurfaceVariant
+                    ),
+                    contentPadding = PaddingValues(0.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(56.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(
+                            if (canSave) Brush.horizontalGradient(listOf(BrandLime, Color(0xFF38BDF8)))
+                            else Brush.horizontalGradient(listOf(DarkSurfaceVariant, DarkSurfaceVariant))
+                        )
+                        .testTag("save_manual_expense_button")
+                ) {
                     Text(
-                        text = method,
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
+                        text = if (transactionType == "DEBIT") "Save Expense" else "Save Income",
+                        style = MaterialTheme.typography.titleMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp
                         ),
-                        color = if (isSel) BrandLime else DarkOnSurfaceVariant
+                        color = if (canSave) DarkBackground else DarkOnSurfaceVariant
                     )
                 }
             }
         }
-
-
-        // Unbilled transactions checklist
-        val unbilledTxnsForCc = remember(allTransactions, selectedRepaidCcId) {
-            allTransactions.filter {
-                it.transaction.paidViaCcId == selectedRepaidCcId &&
-                it.transaction.ccRepaymentId == null &&
-                it.transaction.type == "DEBIT"
-            }
-        }
-
-        // Auto check all unbilled items when card changes
-        LaunchedEffect(selectedRepaidCcId, unbilledTxnsForCc) {
-            selectedRepaidTxnIds = unbilledTxnsForCc.map { it.transaction.id }.toSet()
-        }
-
-        // UI for Paid via Credit Card (Shown for DEBIT, unless it is a CC repayment itself)
-        if (transactionType == "DEBIT" && !isCcRepaymentSelected) {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .verticalScroll(scrollState)
+                .padding(horizontal = 16.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            // 1. Hero Large Amount Card with Date Pill (Matches Mockup)
+            Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = DarkSurface,
                 border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
@@ -628,70 +274,529 @@ fun AddManualScreen(
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically
                     ) {
+                        Text(
+                            text = "Amount",
+                            style = MaterialTheme.typography.labelSmall,
+                            color = DarkOnSurfaceVariant
+                        )
+
+                        // 📅 Date Pill (Clickable DatePicker)
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = DarkSurfaceVariant,
+                            modifier = Modifier.clickable {
+                                val cal = Calendar.getInstance().apply { timeInMillis = timestamp }
+                                DatePickerDialog(
+                                    context,
+                                    { _, year, month, dayOfMonth ->
+                                        val newCal = Calendar.getInstance()
+                                        newCal.set(year, month, dayOfMonth)
+                                        timestamp = newCal.timeInMillis
+                                    },
+                                    cal.get(Calendar.YEAR),
+                                    cal.get(Calendar.MONTH),
+                                    cal.get(Calendar.DAY_OF_MONTH)
+                                ).show()
+                            }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Text("📅", fontSize = 12.sp)
+                                Text(
+                                    text = if (isToday) "Today" else dateDisplayFormat.format(Date(timestamp)),
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                    color = DarkOnSurface
+                                )
+                            }
+                        }
+                    }
+
+                    // Hero Amount Input Field
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    ) {
+                        Text(
+                            text = if (selectedCurrency == "INR" || selectedCurrency.isBlank()) "₹" else selectedCurrency,
+                            style = MaterialTheme.typography.headlineLarge.copy(
+                                fontSize = 36.sp,
+                                fontWeight = FontWeight.Black
+                            ),
+                            color = BrandLime
+                        )
+
+                        BasicTextField(
+                            value = amountStr,
+                            onValueChange = { input ->
+                                if (input.isEmpty() || input.matches(Regex("""^\d*\.?\d{0,2}$"""))) {
+                                    amountStr = input
+                                }
+                            },
+                            textStyle = TextStyle(
+                                fontSize = 36.sp,
+                                fontWeight = FontWeight.Black,
+                                color = DarkOnSurface
+                            ),
+                            cursorBrush = SolidColor(BrandLime),
+                            keyboardOptions = KeyboardOptions(
+                                keyboardType = KeyboardType.Decimal,
+                                imeAction = ImeAction.Next
+                            ),
+                            singleLine = true,
+                            decorationBox = { innerTextField ->
+                                if (amountStr.isEmpty()) {
+                                    Text(
+                                        text = "0",
+                                        style = TextStyle(
+                                            fontSize = 36.sp,
+                                            fontWeight = FontWeight.Black,
+                                            color = DarkOnSurfaceVariant.copy(alpha = 0.4f)
+                                        )
+                                    )
+                                }
+                                innerTextField()
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .testTag("amount_input")
+                        )
+                    }
+
+                    // Subtle Accent Underline (Matches Add Expense screen.jpeg)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(2.dp)
+                            .clip(RoundedCornerShape(1.dp))
+                            .background(
+                                Brush.horizontalGradient(
+                                    listOf(BrandLime, BrandLime.copy(alpha = 0.3f), Color.Transparent)
+                                )
+                            )
+                    )
+                }
+            }
+
+            // 2. Smart Merchant Input with (x) Clear Button
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = DarkSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Storefront,
+                            contentDescription = null,
+                            tint = Color(0xFF8B5CF6),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    }
+
+                    BasicTextField(
+                        value = merchant,
+                        onValueChange = { merchant = it },
+                        textStyle = TextStyle(
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            color = DarkOnSurface
+                        ),
+                        cursorBrush = SolidColor(BrandLime),
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                        decorationBox = { innerTextField ->
+                            if (merchant.isEmpty()) {
+                                Text(
+                                    text = "Merchant / Payee Name (e.g. Big Bazaar, Swiggy)",
+                                    style = TextStyle(
+                                        fontSize = 14.sp,
+                                        color = DarkOnSurfaceVariant.copy(alpha = 0.6f)
+                                    )
+                                )
+                            }
+                            innerTextField()
+                        },
+                        modifier = Modifier.weight(1f)
+                    )
+
+                    if (merchant.isNotEmpty()) {
+                        IconButton(
+                            onClick = { merchant = "" },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Clear",
+                                tint = DarkOnSurfaceVariant,
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 3. Suggested Category (Top 3 Matches + More Pill)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Suggested Category",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = DarkOnSurface
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val matchPcts = listOf(98, 75, 60)
+                    topSuggestedCategories.forEachIndexed { idx, cat ->
+                        val isSelected = selectedCategoryId == cat.id
+                        val matchPct = matchPcts.getOrElse(idx) { 50 }
+
+                        Surface(
+                            shape = RoundedCornerShape(16.dp),
+                            color = if (isSelected) DarkSurface else DarkSurfaceVariant.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.5.dp,
+                                if (isSelected) BrandLime else DarkBorder
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { selectedCategoryId = cat.id }
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .padding(horizontal = 8.dp, vertical = 12.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            if (isSelected) BrandLime.copy(alpha = 0.2f) else DarkSurfaceVariant
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = getIconVector(cat.iconResName),
+                                        contentDescription = cat.name,
+                                        tint = if (isSelected) BrandLime else DarkOnSurfaceVariant,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+
+                                Text(
+                                    text = cat.name,
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = DarkOnSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+
+                                Surface(
+                                    shape = RoundedCornerShape(6.dp),
+                                    color = if (isSelected) BrandLime.copy(alpha = 0.2f) else DarkSurfaceVariant
+                                ) {
+                                    Text(
+                                        text = "$matchPct% match",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.SemiBold
+                                        ),
+                                        color = if (isSelected) BrandLime else DarkOnSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // More Category Drawer Card
+                    Surface(
+                        shape = RoundedCornerShape(16.dp),
+                        color = DarkSurfaceVariant.copy(alpha = 0.5f),
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                        modifier = Modifier
+                            .weight(0.9f)
+                            .clickable { showAllCategoriesModal = true }
+                    ) {
+                        Column(
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 18.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.MoreHoriz,
+                                contentDescription = "More",
+                                tint = DarkOnSurfaceVariant,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Text(
+                                text = "More",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = DarkOnSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 4. Payment Method Selector (UPI, Card, Cash, Netbanking)
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text(
+                    text = "Payment Method",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = DarkOnSurface
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    val methods = listOf(
+                        Triple("UPI", Icons.Default.QrCodeScanner, "UPI"),
+                        Triple("CARD", Icons.Default.CreditCard, "Card"),
+                        Triple("CASH", Icons.Default.Payments, "Cash"),
+                        Triple("NETBANKING", Icons.Default.AccountBalance, "Netbanking")
+                    )
+
+                    methods.forEach { (methodKey, icon, label) ->
+                        val isSelected = paymentMethod == methodKey
+                        Surface(
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (isSelected) DarkSurface else DarkSurfaceVariant.copy(alpha = 0.4f),
+                            border = androidx.compose.foundation.BorderStroke(
+                                1.5.dp,
+                                if (isSelected) BrandLime else DarkBorder
+                            ),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { paymentMethod = methodKey }
+                        ) {
+                            Column(
+                                modifier = Modifier.padding(vertical = 12.dp, horizontal = 4.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(32.dp)
+                                        .clip(CircleShape)
+                                        .background(if (isSelected) BrandLime.copy(alpha = 0.2f) else Color.Transparent),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = label,
+                                        tint = if (isSelected) BrandLime else DarkOnSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                Text(
+                                    text = label,
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                        fontSize = 11.sp
+                                    ),
+                                    color = if (isSelected) DarkOnSurface else DarkOnSurfaceVariant,
+                                    maxLines = 1
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // RuPay Credit Card on UPI Smart Link
+            if (paymentMethod == "UPI" && creditCards.isNotEmpty()) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = if (selectedCcId != null) BrandLimeContainer.copy(alpha = 0.35f) else DarkSurfaceVariant.copy(alpha = 0.6f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, if (selectedCcId != null) BrandLime else DarkBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            if (selectedCcId != null) selectedCcId = null
+                            else selectedCcId = creditCards.first().id
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.CreditCard,
-                                contentDescription = null,
-                                tint = BrandLime
-                            )
-                            Text("Paid via Credit Card", fontWeight = FontWeight.SemiBold, color = DarkOnSurface)
+                            Text("⚡", fontSize = 14.sp)
+                            Column {
+                                Text(
+                                    text = if (selectedCcId != null) "Paid via RuPay CC: ${creditCards.find { it.id == selectedCcId }?.cardName}"
+                                    else "Paid using RuPay Credit Card on UPI?",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = if (selectedCcId != null) BrandOnLimeContainer else DarkOnSurface
+                                )
+                                Text(
+                                    text = if (selectedCcId != null) "Linked to Credit Card statement dues"
+                                    else "Tap to link expense to your Credit Card",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
+                                    color = DarkOnSurfaceVariant
+                                )
+                            }
                         }
-                        Switch(
-                            checked = paidViaCcChecked,
-                            onCheckedChange = {
-                                paidViaCcChecked = it
-                                if (it && selectedCcId == null && creditCards.isNotEmpty()) {
-                                    selectedCcId = creditCards.first().id
-                                }
-                            },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = DarkBackground,
-                                checkedTrackColor = BrandLime
-                            )
-                        )
-                    }
-
-                    if (paidViaCcChecked) {
-                        if (creditCards.isEmpty()) {
-                            Text(
-                                "No saved credit cards. Please add one in Cards tab.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = DarkError
-                            )
+                        if (selectedCcId != null) {
+                            Icon(Icons.Default.CheckCircle, contentDescription = "Linked", tint = BrandLime, modifier = Modifier.size(16.dp))
                         } else {
-                            val selectedCc = creditCards.find { it.id == selectedCcId } ?: creditCards.firstOrNull()
-                            
-                            Box(modifier = Modifier.fillMaxWidth()) {
-                                OutlinedButton(
-                                    onClick = { ccDropdownExpanded = true },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    shape = RoundedCornerShape(10.dp),
-                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DarkOnSurface),
-                                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
-                                ) {
-                                    Text(selectedCc?.cardName ?: "Select Credit Card")
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                                }
+                            Text("Link Card", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = BrandLime))
+                        }
+                    }
+                }
+            }
 
-                                DropdownMenu(
-                                    expanded = ccDropdownExpanded,
-                                    onDismissRequest = { ccDropdownExpanded = false },
+            // 5. Collapsible Optional Fields (Less is More)
+            // Accordion 1: Paid via Credit Card / Account
+            if (paymentMethod == "CARD") {
+                if (creditCards.isEmpty()) {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = DarkSurface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showAddCardDialog = true }
+                                .padding(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(Icons.Default.CreditCard, null, tint = Color(0xFFA855F7), modifier = Modifier.size(20.dp))
+                                Column {
+                                    Text("No Credit Card Added", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold), color = DarkOnSurface)
+                                    Text("Tap to add a credit card", style = MaterialTheme.typography.labelSmall, color = DarkOnSurfaceVariant)
+                                }
+                            }
+                            Text("+ Add Card", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = BrandLime)
+                        }
+                    }
+                } else {
+                    Surface(
+                        shape = RoundedCornerShape(14.dp),
+                        color = DarkSurface,
+                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(modifier = Modifier.padding(12.dp)) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { isPaidViaExpanded = !isPaidViaExpanded },
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Icon(Icons.Default.CheckCircle, null, tint = BrandLime, modifier = Modifier.size(18.dp))
+                                    Text(
+                                        text = "Select Credit Card (${creditCards.find { it.id == selectedCcId }?.cardName ?: "Choose card"})",
+                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                        color = DarkOnSurface
+                                    )
+                                }
+                                Icon(
+                                    imageVector = if (isPaidViaExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                    contentDescription = null,
+                                    tint = DarkOnSurfaceVariant
+                                )
+                            }
+
+                            AnimatedVisibility(
+                                visible = isPaidViaExpanded,
+                                enter = expandVertically(),
+                                exit = shrinkVertically()
+                            ) {
+                                Column(
                                     modifier = Modifier
-                                        .fillMaxWidth(0.9f)
-                                        .background(DarkSurface)
+                                        .fillMaxWidth()
+                                        .padding(top = 10.dp),
+                                    verticalArrangement = Arrangement.spacedBy(6.dp)
                                 ) {
                                     creditCards.forEach { card ->
-                                        DropdownMenuItem(
-                                            text = { Text(card.cardName, color = DarkOnSurface) },
-                                            onClick = {
-                                                selectedCcId = card.id
-                                                ccDropdownExpanded = false
+                                        val isCardSel = selectedCcId == card.id
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isCardSel) BrandLimeContainer else DarkSurfaceVariant,
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .clickable {
+                                                    selectedCcId = card.id
+                                                    isPaidViaExpanded = false
+                                                }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Text(
+                                                    text = card.cardName,
+                                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = if (isCardSel) BrandOnLimeContainer else DarkOnSurface
+                                                )
+                                                if (isCardSel) {
+                                                    Icon(Icons.Default.Check, null, tint = BrandOnLimeContainer, modifier = Modifier.size(16.dp))
+                                                }
                                             }
-                                        )
+                                        }
+                                    }
+
+                                    // In-flow Missing Card Button
+                                    Surface(
+                                        shape = RoundedCornerShape(10.dp),
+                                        color = Color.Transparent,
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, BrandLime.copy(alpha = 0.35f)),
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .clickable { showAddCardDialog = true }
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.Center
+                                        ) {
+                                            Icon(Icons.Default.Add, null, tint = BrandLime, modifier = Modifier.size(16.dp))
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = "Missing a card? + Add Credit Card",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = BrandLime
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -699,316 +804,327 @@ fun AddManualScreen(
                     }
                 }
             }
-        }
 
-        // UI for CreditCard Payment Category selection (Repayment checklist)
-        if (isCcRepaymentSelected) {
-            Card(
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
+            // Accordion 2: Notes (Optional)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = DarkSurface,
                 border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
                 modifier = Modifier.fillMaxWidth()
             ) {
-                Column(
-                    modifier = Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    Text(
-                        text = "Credit Card Repayment Details",
-                        fontWeight = FontWeight.Bold,
-                        style = MaterialTheme.typography.titleMedium,
-                        color = DarkOnSurface
-                    )
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isNotesExpanded = !isNotesExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Icon(Icons.AutoMirrored.Filled.Notes, null, tint = DarkOnSurfaceVariant, modifier = Modifier.size(18.dp))
+                            Text(
+                                text = if (notes.isBlank()) "Notes (Optional)" else "Note: $notes",
+                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = DarkOnSurface
+                            )
+                        }
+                        Icon(
+                            imageVector = if (isNotesExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = DarkOnSurfaceVariant
+                        )
+                    }
 
+                    AnimatedVisibility(
+                        visible = isNotesExpanded,
+                        enter = expandVertically(),
+                        exit = shrinkVertically()
+                    ) {
+                        OutlinedTextField(
+                            value = notes,
+                            onValueChange = { notes = it },
+                            placeholder = { Text("Add any tags or details (e.g. #dinner, #client)") },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 10.dp),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedContainerColor = DarkSurfaceVariant,
+                                unfocusedContainerColor = DarkSurfaceVariant,
+                                focusedBorderColor = BrandLime,
+                                unfocusedBorderColor = DarkBorder
+                            )
+                        )
+                    }
+                }
+            }
+
+            // Accordion 3: More options (Recurring, Subcategory, Type Switch)
+            Surface(
+                shape = RoundedCornerShape(14.dp),
+                color = DarkSurface,
+                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(modifier = Modifier.padding(12.dp)) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { isMoreOptionsExpanded = !isMoreOptionsExpanded },
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = "More options",
+                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                            color = DarkOnSurfaceVariant
+                        )
+                        Icon(
+                            imageVector = if (isMoreOptionsExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                            contentDescription = null,
+                            tint = DarkOnSurfaceVariant
+                        )
+                    }
+
+                    AnimatedVisibility(
+                        visible = isMoreOptionsExpanded,
+                        enter = expandVertically(),
+                        exit = shrinkVertically()
+                    ) {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 12.dp),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Transaction Type Switch
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                FilterChip(
+                                    selected = transactionType == "DEBIT",
+                                    onClick = { transactionType = "DEBIT" },
+                                    label = { Text("Expense (Outflow)") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = Color(0xFFEF4444).copy(alpha = 0.2f),
+                                        selectedLabelColor = Color(0xFFEF4444)
+                                    )
+                                )
+                                FilterChip(
+                                    selected = transactionType == "CREDIT",
+                                    onClick = { transactionType = "CREDIT" },
+                                    label = { Text("Income (Inflow)") },
+                                    colors = FilterChipDefaults.filterChipColors(
+                                        selectedContainerColor = BrandLime.copy(alpha = 0.2f),
+                                        selectedLabelColor = BrandLime
+                                    )
+                                )
+                            }
+
+                            // Subcategory Input
+                            OutlinedTextField(
+                                value = subCategory,
+                                onValueChange = { subCategory = it },
+                                label = { Text("Subcategory (Optional)") },
+                                placeholder = { Text("e.g. Vegetables, Dinner, Fuel") },
+                                singleLine = true,
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp),
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedContainerColor = DarkSurfaceVariant,
+                                    unfocusedContainerColor = DarkSurfaceVariant,
+                                    focusedBorderColor = BrandLime,
+                                    unfocusedBorderColor = DarkBorder
+                                )
+                            )
+
+                            // Recurring Schedule Switch
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Recurring Schedule", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                                        Text("Auto-log on repeat", style = MaterialTheme.typography.labelSmall, color = DarkOnSurfaceVariant)
+                                    }
+                                    Switch(
+                                        checked = isRecurringChecked,
+                                        onCheckedChange = { isRecurringChecked = it },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = BrandLime, checkedTrackColor = BrandLimeContainer)
+                                    )
+                                }
+
+                                if (isRecurringChecked) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        listOf("DAILY", "WEEKLY", "MONTHLY", "YEARLY").forEach { freq ->
+                                            FilterChip(
+                                                selected = recurringFreq == freq,
+                                                onClick = { recurringFreq = freq },
+                                                label = { Text(freq.lowercase().replaceFirstChar { it.uppercase() }, fontSize = 11.sp) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = BrandLime.copy(alpha = 0.2f),
+                                                    selectedLabelColor = BrandLime
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
+    }
+
+    // Modal to view All Categories
+    if (showAllCategoriesModal) {
+        AlertDialog(
+            onDismissRequest = { showAllCategoriesModal = false },
+            title = { Text("Select Category", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 400.dp)
+                        .verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    categories.forEach { cat ->
+                        val isSel = selectedCategoryId == cat.id
+                        Surface(
+                            shape = RoundedCornerShape(10.dp),
+                            color = if (isSel) BrandLimeContainer else DarkSurfaceVariant,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    selectedCategoryId = cat.id
+                                    showAllCategoriesModal = false
+                                }
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Icon(
+                                    imageVector = getIconVector(cat.iconResName),
+                                    contentDescription = cat.name,
+                                    tint = if (isSel) BrandOnLimeContainer else DarkOnSurfaceVariant,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                                Text(
+                                    text = cat.name,
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                                    color = if (isSel) BrandOnLimeContainer else DarkOnSurface,
+                                    modifier = Modifier.weight(1f)
+                                )
+                                if (isSel) {
+                                    Icon(Icons.Default.Check, null, tint = BrandOnLimeContainer, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showAllCategoriesModal = false }) {
+                    Text("Close", color = BrandLime)
+                }
+            },
+            containerColor = DarkSurface
+        )
+    }
+
+    if (showAddCardDialog) {
+        var newCardName by remember { mutableStateOf("") }
+        var newCardLast4 by remember { mutableStateOf("") }
+
+        AlertDialog(
+            onDismissRequest = { showAddCardDialog = false },
+            title = {
+                Text(
+                    text = "Add Credit Card",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = DarkOnSurface
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Select the credit card you are paying off:",
+                        text = "Enter your credit card or bank name and the last 4 digits.",
                         style = MaterialTheme.typography.bodySmall,
                         color = DarkOnSurfaceVariant
                     )
-
-                    if (creditCards.isEmpty()) {
-                        Text(
-                            "No saved credit cards. Please add one in Cards tab first.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = DarkError
-                        )
-                    } else {
-                        val selectedRepaidCc = creditCards.find { it.id == selectedRepaidCcId } ?: creditCards.firstOrNull()
-
-                        Box(modifier = Modifier.fillMaxWidth()) {
-                            OutlinedButton(
-                                onClick = { repaymentCcDropdownExpanded = true },
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(10.dp),
-                                colors = ButtonDefaults.outlinedButtonColors(contentColor = DarkOnSurface),
-                                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder)
-                            ) {
-                                Text(selectedRepaidCc?.cardName ?: "Select Credit Card")
-                                Spacer(modifier = Modifier.weight(1f))
-                                Icon(Icons.Default.ArrowDropDown, contentDescription = null)
-                            }
-
-                            DropdownMenu(
-                                expanded = repaymentCcDropdownExpanded,
-                                onDismissRequest = { repaymentCcDropdownExpanded = false },
-                                modifier = Modifier
-                                    .fillMaxWidth(0.9f)
-                                    .background(DarkSurface)
-                            ) {
-                                creditCards.forEach { card ->
-                                    DropdownMenuItem(
-                                        text = { Text(card.cardName, color = DarkOnSurface) },
-                                        onClick = {
-                                            selectedRepaidCcId = card.id
-                                            repaymentCcDropdownExpanded = false
-                                        }
-                                    )
-                                }
-                            }
-                        }
-
-                        if (unbilledTxnsForCc.isEmpty()) {
-                            Text(
-                                "No unbilled transactions found for this card.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = DarkOnSurfaceVariant
-                            )
-                        } else {
-                            Text(
-                                text = "Select transactions to settle:",
-                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                                color = DarkOnSurfaceVariant
-                            )
-
-                            unbilledTxnsForCc.forEach { item ->
-                                val isChecked = selectedRepaidTxnIds.contains(item.transaction.id)
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (isChecked) DarkSurfaceVariant else Color.Transparent)
-                                        .clickable {
-                                            if (isChecked) {
-                                                selectedRepaidTxnIds = selectedRepaidTxnIds - item.transaction.id
-                                            } else {
-                                                selectedRepaidTxnIds = selectedRepaidTxnIds + item.transaction.id
-                                            }
-                                            val newTotal = unbilledTxnsForCc.filter { selectedRepaidTxnIds.contains(it.transaction.id) }.sumOf { it.transaction.amount }
-                                            if (newTotal > 0.0) {
-                                                amountStr = newTotal.toString()
-                                            }
-                                        }
-                                        .padding(vertical = 4.dp, horizontal = 6.dp),
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Checkbox(
-                                        checked = isChecked,
-                                        onCheckedChange = { checked ->
-                                            if (checked == true) {
-                                                selectedRepaidTxnIds = selectedRepaidTxnIds + item.transaction.id
-                                            } else {
-                                                selectedRepaidTxnIds = selectedRepaidTxnIds - item.transaction.id
-                                            }
-                                            val newTotal = unbilledTxnsForCc.filter { selectedRepaidTxnIds.contains(it.transaction.id) }.sumOf { it.transaction.amount }
-                                            if (newTotal > 0.0) {
-                                                amountStr = newTotal.toString()
-                                            }
-                                        },
-                                        colors = CheckboxDefaults.colors(
-                                            checkedColor = BrandLime,
-                                            checkmarkColor = DarkBackground
-                                        )
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        val dateFormatted = SimpleDateFormat("dd MMM yy", Locale.getDefault()).format(Date(item.transaction.timestamp))
-                                        Text(item.transaction.merchant, fontWeight = FontWeight.SemiBold, style = MaterialTheme.typography.bodyMedium, color = DarkOnSurface)
-                                        Text("$dateFormatted • ${item.category?.name ?: "Uncategorized"}", style = MaterialTheme.typography.bodySmall, color = DarkOnSurfaceVariant)
-                                    }
-                                    Text("₹${"%,.0f".format(item.transaction.amount)}", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.bodyMedium, color = DarkOnSurface)
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Optional Notes
-        OutlinedTextField(
-            value = notes,
-            onValueChange = { notes = it },
-            label = { Text("Notes (Optional)", color = DarkOnSurfaceVariant) },
-            placeholder = { Text("e.g., lunch with friends, fuel", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
-            leadingIcon = { Icon(Icons.AutoMirrored.Filled.Notes, null, tint = BrandLime) },
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-            shape = RoundedCornerShape(14.dp),
-            colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = DarkSurface,
-                unfocusedContainerColor = DarkSurface,
-                focusedBorderColor = BrandLime,
-                unfocusedBorderColor = DarkBorder,
-                focusedTextColor = DarkOnSurface,
-                unfocusedTextColor = DarkOnSurface
-            )
-        )
-
-        // Recurring designation card
-        Card(
-            shape = RoundedCornerShape(16.dp),
-            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-            modifier = Modifier
-                .fillMaxWidth()
-                .testTag("add_recurring_card")
-        ) {
-            Column(
-                modifier = Modifier.padding(16.dp),
-                verticalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Row(
-                        modifier = Modifier.weight(1f),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Autorenew,
-                            contentDescription = null,
-                            tint = if (isRecurringChecked) BrandLime else DarkOnSurfaceVariant
-                        )
-                        Column {
-                            Text(
-                                text = "Designate as Recurring",
-                                style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                color = DarkOnSurface
-                            )
-                            Text(
-                                text = "Auto-trigger transactions on schedule",
-                                style = MaterialTheme.typography.labelSmall,
-                                color = DarkOnSurfaceVariant
-                            )
-                        }
-                    }
-                    Switch(
-                        checked = isRecurringChecked,
-                        onCheckedChange = { isRecurringChecked = it },
-                        modifier = Modifier.testTag("add_recurring_switch"),
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = DarkBackground,
-                            checkedTrackColor = BrandLime
-                        )
+                    OutlinedTextField(
+                        value = newCardName,
+                        onValueChange = { newCardName = it },
+                        placeholder = { Text("Card Name (e.g. ICICI Coral RuPay)", color = DarkOnSurfaceVariant) },
+                        label = { Text("Card / Bank Name") },
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = DarkOnSurface,
+                            unfocusedTextColor = DarkOnSurface,
+                            focusedBorderColor = BrandLime,
+                            unfocusedBorderColor = DarkBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newCardLast4,
+                        onValueChange = { input ->
+                            newCardLast4 = input.filter { it.isDigit() }.take(4)
+                        },
+                        placeholder = { Text("e.g. 8042", color = DarkOnSurfaceVariant) },
+                        label = { Text("Last 4 Digits Only") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedTextColor = DarkOnSurface,
+                            unfocusedTextColor = DarkOnSurface,
+                            focusedBorderColor = BrandLime,
+                            unfocusedBorderColor = DarkBorder
+                        ),
+                        modifier = Modifier.fillMaxWidth()
                     )
                 }
-
-                if (isRecurringChecked) {
-                    HorizontalDivider(color = DarkBorder)
-                    
-                    Text(
-                        text = "Frequency",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = DarkOnSurfaceVariant
-                    )
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        listOf("DAILY" to "Daily", "WEEKLY" to "Weekly", "MONTHLY" to "Monthly", "YEARLY" to "Yearly").forEach { (freqKey, label) ->
-                            val isSel = selectedFrequency == freqKey
-                            FilterChip(
-                                selected = isSel,
-                                onClick = { selectedFrequency = freqKey },
-                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("add_freq_chip_$freqKey"),
-                                colors = FilterChipDefaults.filterChipColors(
-                                    selectedContainerColor = BrandLimeContainer,
-                                    selectedLabelColor = BrandOnLimeContainer,
-                                    containerColor = DarkSurfaceVariant,
-                                    labelColor = DarkOnSurfaceVariant
-                                )
-                            )
-                        }
-                    }
-                }
-            }
-        }
-
-        Spacer(modifier = Modifier.height(4.dp))
-
-        // Save Button
-        Button(
-            onClick = {
-                val amt = amountStr.toDoubleOrNull() ?: 0.0
-                val freq = if (isRecurringChecked) selectedFrequency else null
-                val ccId = if (paidViaCcChecked && transactionType == "DEBIT" && !isCcRepaymentSelected) selectedCcId else null
-                val repCcId = if (isCcRepaymentSelected) selectedRepaidCcId else null
-                val repTxnIds = if (isCcRepaymentSelected) selectedRepaidTxnIds.toList() else emptyList()
-
-                onSaveTransaction(
-                    amt,
-                    transactionType,
-                    merchant.trim(),
-                    selectedCategoryId,
-                    notes.trim().ifBlank { null },
-                    paymentMethod,
-                    selectedTimestamp,
-                    freq,
-                    subCategory,
-                    ccId,
-                    repCcId,
-                    repTxnIds,
-                    selectedCurrency
-                )
             },
-            enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),
-            shape = RoundedCornerShape(14.dp),
-            colors = ButtonDefaults.buttonColors(
-                containerColor = BrandLime,
-                contentColor = DarkBackground,
-                disabledContainerColor = DarkSurfaceVariant,
-                disabledContentColor = DarkOnSurfaceVariant.copy(alpha = 0.4f)
-            ),
-            modifier = Modifier
-                .fillMaxWidth()
-                .height(54.dp)
-                .testTag("save_transaction_button")
-        ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                Icon(Icons.Default.Check, null)
-                Text(
-                    text = "Save Expense",
-                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.ExtraBold)
-                )
-            }
-        }
-        
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (newCardName.isNotBlank()) {
+                            val finalName = if (newCardLast4.isNotBlank()) {
+                                "${newCardName.trim()} •••• $newCardLast4"
+                            } else {
+                                newCardName.trim()
+                            }
+                            onAddCreditCard(finalName)
+                            showAddCardDialog = false
+                        }
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = BrandLime, contentColor = DarkBackground)
+                ) {
+                    Text("Add Card", fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAddCardDialog = false }) {
+                    Text("Cancel", color = DarkOnSurfaceVariant)
+                }
+            },
+            containerColor = DarkSurface,
+            shape = RoundedCornerShape(20.dp)
+        )
     }
 }
-
-fun getCurrencySymbol(code: String): String {
-    return when (code.uppercase()) {
-        "INR" -> "₹"
-        "USD" -> "$"
-        "EUR" -> "€"
-        "GBP" -> "£"
-        "JPY" -> "¥"
-        "AED" -> "د.إ"
-        "AUD" -> "A$"
-        "CAD" -> "C$"
-        "SGD" -> "S$"
-        else -> code
-    }
-}
-

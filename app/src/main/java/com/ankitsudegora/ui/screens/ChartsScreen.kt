@@ -39,6 +39,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.ankitsudegora.ui.components.getCurrencySymbol
 import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.TransactionWithCategory
 import com.ankitsudegora.viewmodel.AnalyticsState

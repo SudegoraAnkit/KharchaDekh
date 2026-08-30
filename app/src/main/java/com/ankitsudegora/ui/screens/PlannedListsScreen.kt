@@ -161,11 +161,21 @@ fun PlannedMasterScreen(
                         shape = RoundedCornerShape(12.dp)
                     )
                 } else {
-                    Text(
-                        text = "Lists",
-                        style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black),
-                        color = DarkOnSurface
-                    )
+                    Column {
+                        Text(
+                            text = "Lists",
+                            style = MaterialTheme.typography.headlineMedium.copy(
+                                fontWeight = FontWeight.Black,
+                                fontSize = 26.sp
+                            ),
+                            color = DarkOnSurface
+                        )
+                        Text(
+                            text = "Plan today, spend better tomorrow.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = DarkOnSurfaceVariant
+                        )
+                    }
 
                     Row(
                         verticalAlignment = Alignment.CenterVertically,
@@ -207,33 +217,138 @@ fun PlannedMasterScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(RoundedCornerShape(14.dp))
                     .background(DarkSurfaceVariant)
                     .padding(4.dp)
             ) {
                 listOf("My Lists" to draftLists.size, "Completed" to completedLists.size).forEachIndexed { index, (label, count) ->
                     val isSel = selectedTab == index
+                    val animatedBg by androidx.compose.animation.animateColorAsState(
+                        targetValue = if (isSel) BrandLime else Color.Transparent,
+                        label = "tab_bg"
+                    )
+                    val animatedText by androidx.compose.animation.animateColorAsState(
+                        targetValue = if (isSel) DarkBackground else DarkOnSurfaceVariant,
+                        label = "tab_text"
+                    )
+
                     Box(
                         modifier = Modifier
                             .weight(1f)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (isSel) BrandLime else Color.Transparent)
+                            .background(animatedBg)
                             .clickable { selectedTab = index }
                             .padding(vertical = 10.dp),
                         contentAlignment = Alignment.Center
                     ) {
                         Text(
-                            text = "$label ($count)",
+                            text = "$label $count",
                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                            color = if (isSel) DarkBackground else DarkOnSurfaceVariant
+                            color = animatedText
                         )
                     }
                 }
             }
 
-            Spacer(modifier = Modifier.height(16.dp))
+            // Dismissible Tip Banner (Matches Lists.jpeg)
+            var isTipDismissed by remember { mutableStateOf(false) }
+            if (!isTipDismissed) {
+                Spacer(modifier = Modifier.height(10.dp))
+                Surface(
+                    shape = RoundedCornerShape(14.dp),
+                    color = DarkSurface,
+                    border = BorderStroke(1.dp, DarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(
+                            modifier = Modifier.weight(1f),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(Color(0xFFF59E0B).copy(alpha = 0.2f)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("💡", fontSize = 14.sp)
+                            }
+                            Column {
+                                Text(
+                                    text = "Lists help you spend 23% less",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                    color = DarkOnSurface
+                                )
+                                Text(
+                                    text = "People who plan, spend more mindfully.",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                    color = DarkOnSurfaceVariant
+                                )
+                            }
+                        }
 
-            val currentDisplayLists = if (selectedTab == 0) draftLists else completedLists
+                        IconButton(
+                            onClick = { isTipDismissed = true },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(Icons.Default.Close, contentDescription = "Dismiss", tint = DarkOnSurfaceVariant, modifier = Modifier.size(14.dp))
+                        }
+                    }
+                }
+            }
+
+            // Category Filter Chips
+            var selectedCategoryFilter by remember { mutableStateOf("ALL") }
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .horizontalScroll(rememberScrollState())
+                    .padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                listOf("ALL" to "All", "SHOPPING" to "Shopping", "BILLS" to "Bills", "TRAVEL" to "Travel", "OTHER" to "Other").forEach { (filterKey, label) ->
+                    val isSel = selectedCategoryFilter == filterKey
+                    FilterChip(
+                        selected = isSel,
+                        onClick = { selectedCategoryFilter = filterKey },
+                        label = { Text(label, style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal)) },
+                        colors = FilterChipDefaults.filterChipColors(
+                            selectedContainerColor = BrandLime,
+                            selectedLabelColor = DarkBackground,
+                            containerColor = DarkSurface,
+                            labelColor = DarkOnSurfaceVariant
+                        ),
+                        border = FilterChipDefaults.filterChipBorder(
+                            borderColor = if (isSel) BrandLime else DarkBorder,
+                            selectedBorderColor = BrandLime,
+                            enabled = true,
+                            selected = isSel
+                        ),
+                        shape = RoundedCornerShape(8.dp)
+                    )
+                }
+            }
+
+            val currentDisplayLists = remember(selectedTab, draftLists, completedLists, selectedCategoryFilter) {
+                val baseLists = if (selectedTab == 0) draftLists else completedLists
+                if (selectedCategoryFilter == "ALL") baseLists else {
+                    baseLists.filter { item ->
+                        val cat = categories.find { it.id == item.plannedList.categoryId }
+                        when (selectedCategoryFilter) {
+                            "SHOPPING" -> cat?.name?.contains("Shopping", ignoreCase = true) == true || item.plannedList.name.contains("Shopping", ignoreCase = true)
+                            "BILLS" -> cat?.name?.contains("Bill", ignoreCase = true) == true || item.plannedList.name.contains("Bill", ignoreCase = true)
+                            "TRAVEL" -> cat?.name?.contains("Travel", ignoreCase = true) == true || item.plannedList.name.contains("Travel", ignoreCase = true)
+                            else -> true
+                        }
+                    }
+                }
+            }
 
             if (currentDisplayLists.isEmpty()) {
                 Box(
@@ -304,15 +419,27 @@ fun CreateListDialog(
     onCreate: (String, Double?, Long?) -> Unit
 ) {
     var listName by remember { mutableStateOf("") }
-    var description by remember { mutableStateOf("") }
-    var selectedPresetIndex by remember { mutableStateOf(0) }
+    var budgetStr by remember { mutableStateOf("") }
+    var notes by remember { mutableStateOf("") }
+    var selectedCatId by remember { mutableStateOf<Long?>(null) }
+    var selectedColorIndex by remember { mutableStateOf(0) }
 
-    val presets = listOf(
-        Triple("Groceries", Icons.Default.ShoppingCart, Color(0xFF22C55E)),
-        Triple("Dining / BBQ", Icons.Default.Restaurant, Color(0xFFF59E0B)),
-        Triple("Home Essentials", Icons.Default.Home, Color(0xFF3B82F6)),
-        Triple("Office Supplies", Icons.Default.Work, Color(0xFFA855F7)),
-        Triple("Gift Ideas", Icons.Default.CardGiftcard, Color(0xFFEC4899))
+    val paletteColors = listOf(
+        Color(0xFF10B981), // Lime Green
+        Color(0xFF06B6D4), // Cyan
+        Color(0xFF8B5CF6), // Purple
+        Color(0xFFF59E0B), // Amber
+        Color(0xFFEF4444), // Red
+        Color(0xFFEC4899)  // Pink
+    )
+
+    val categoryPresets = listOf(
+        Triple("Shopping", Icons.Default.ShoppingCart, categories.find { it.name.contains("Shopping", ignoreCase = true) }?.id),
+        Triple("Travel", Icons.Default.Flight, categories.find { it.name.contains("Travel", ignoreCase = true) }?.id),
+        Triple("Bills", Icons.Default.Receipt, categories.find { it.name.contains("Bill", ignoreCase = true) }?.id),
+        Triple("Home", Icons.Default.Home, categories.find { it.name.contains("Home", ignoreCase = true) }?.id),
+        Triple("Gift", Icons.Default.CardGiftcard, categories.find { it.name.contains("Gift", ignoreCase = true) }?.id),
+        Triple("Other", Icons.Default.MoreHoriz, null)
     )
 
     Dialog(onDismissRequest = onDismiss) {
@@ -323,34 +450,62 @@ fun CreateListDialog(
             modifier = Modifier.fillMaxWidth()
         ) {
             Column(
-                modifier = Modifier.padding(24.dp),
-                verticalArrangement = Arrangement.spacedBy(16.dp)
+                modifier = Modifier
+                    .padding(20.dp)
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(14.dp)
             ) {
-                // Header
+                // Header (Matches Lists.jpeg Create List pane)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Text(
-                        text = "Create List",
-                        style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.ExtraBold),
-                        color = DarkOnSurface
-                    )
                     IconButton(
                         onClick = onDismiss,
                         modifier = Modifier.size(32.dp)
                     ) {
                         Icon(Icons.Default.Close, contentDescription = "Close", tint = DarkOnSurfaceVariant)
                     }
+
+                    Text(
+                        text = "Create List",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface
+                    )
+
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .background(if (listName.isNotBlank()) BrandLime else DarkSurfaceVariant)
+                            .clickable(enabled = listName.isNotBlank()) {
+                                val cap = budgetStr.toDoubleOrNull()
+                                onCreate(listName.trim(), cap, selectedCatId)
+                            },
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Check,
+                            contentDescription = "Confirm",
+                            tint = if (listName.isNotBlank()) DarkBackground else DarkOnSurfaceVariant,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
 
-                // List Name Input
+                Text(
+                    text = "Give your list a name and we'll help you stay organized.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = DarkOnSurfaceVariant
+                )
+
+                // List Name Input with Wallet Icon
                 OutlinedTextField(
                     value = listName,
                     onValueChange = { listName = it },
-                    label = { Text("List Name", color = DarkOnSurfaceVariant) },
-                    placeholder = { Text("e.g. Monthly Groceries", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
+                    placeholder = { Text("e.g. Weekend Groceries", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
+                    leadingIcon = { Icon(Icons.Default.ShoppingBag, contentDescription = null, tint = BrandLime) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
@@ -364,46 +519,109 @@ fun CreateListDialog(
                     )
                 )
 
-                // Icon & Color Preset Selector
+                // Choose Category Grid (3 cols x 2 rows)
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
-                        text = "Icon & Category",
+                        text = "Choose a category",
                         style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                         color = DarkOnSurface
                     )
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        presets.forEachIndexed { index, (label, icon, color) ->
-                            val isSel = selectedPresetIndex == index
+                        categoryPresets.take(3).forEach { (label, icon, catId) ->
+                            val isSel = (catId != null && selectedCatId == catId) || (catId == null && selectedCatId == null && label == "Other")
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSel) DarkSurfaceElevated else DarkSurfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(1.5.dp, if (isSel) BrandLime else DarkBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedCatId = catId }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(icon, contentDescription = label, tint = if (isSel) BrandLime else DarkOnSurfaceVariant, modifier = Modifier.size(20.dp))
+                                    Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal), color = if (isSel) DarkOnSurface else DarkOnSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        categoryPresets.drop(3).forEach { (label, icon, catId) ->
+                            val isSel = (catId != null && selectedCatId == catId) || (catId == null && selectedCatId == null && label == "Other")
+                            Surface(
+                                shape = RoundedCornerShape(12.dp),
+                                color = if (isSel) DarkSurfaceElevated else DarkSurfaceVariant.copy(alpha = 0.5f),
+                                border = BorderStroke(1.5.dp, if (isSel) BrandLime else DarkBorder),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clickable { selectedCatId = catId }
+                            ) {
+                                Column(
+                                    modifier = Modifier.padding(vertical = 10.dp, horizontal = 4.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(icon, contentDescription = label, tint = if (isSel) BrandLime else DarkOnSurfaceVariant, modifier = Modifier.size(20.dp))
+                                    Text(label, style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal), color = if (isSel) DarkOnSurface else DarkOnSurfaceVariant)
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Pick a Color Dots Palette (Matches Lists.jpeg)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Pick a color",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        paletteColors.forEachIndexed { index, color ->
+                            val isSel = selectedColorIndex == index
                             Box(
                                 modifier = Modifier
-                                    .size(44.dp)
-                                    .clip(RoundedCornerShape(12.dp))
-                                    .background(if (isSel) color else color.copy(alpha = 0.2f))
-                                    .clickable { selectedPresetIndex = index }
-                                    .padding(8.dp),
+                                    .size(34.dp)
+                                    .clip(CircleShape)
+                                    .background(if (isSel) color.copy(alpha = 0.3f) else Color.Transparent)
+                                    .clickable { selectedColorIndex = index },
                                 contentAlignment = Alignment.Center
                             ) {
-                                Icon(
-                                    imageVector = icon,
-                                    contentDescription = label,
-                                    tint = if (isSel) Color.White else color,
-                                    modifier = Modifier.size(24.dp)
+                                Box(
+                                    modifier = Modifier
+                                        .size(if (isSel) 20.dp else 24.dp)
+                                        .clip(CircleShape)
+                                        .background(color)
                                 )
                             }
                         }
                     }
                 }
 
-                // Description (Optional)
+                // Optional Budget Cap Input
                 OutlinedTextField(
-                    value = description,
-                    onValueChange = { description = it },
-                    label = { Text("Description (optional)", color = DarkOnSurfaceVariant) },
-                    placeholder = { Text("e.g. Groceries for the month", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
+                    value = budgetStr,
+                    onValueChange = { budgetStr = it },
+                    placeholder = { Text("Set budget limit (optional) e.g. ₹5000", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
+                    leadingIcon = { Icon(Icons.Default.AttachMoney, contentDescription = null, tint = DarkOnSurfaceVariant) },
                     singleLine = true,
+                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = OutlinedTextFieldDefaults.colors(
@@ -420,8 +638,8 @@ fun CreateListDialog(
                 Button(
                     onClick = {
                         if (listName.isNotBlank()) {
-                            val matchedCat = categories.find { it.name.contains(presets[selectedPresetIndex].first, ignoreCase = true) }
-                            onCreate(listName.trim(), null, matchedCat?.id)
+                            val cap = budgetStr.toDoubleOrNull()
+                            onCreate(listName.trim(), cap, selectedCatId)
                         }
                     },
                     enabled = listName.isNotBlank(),
@@ -438,7 +656,7 @@ fun CreateListDialog(
                 ) {
                     Text(
                         text = "Create List",
-                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.ExtraBold)
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
                     )
                 }
             }

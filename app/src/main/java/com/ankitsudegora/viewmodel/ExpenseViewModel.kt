@@ -755,6 +755,7 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
         }
     }
 
+
     fun updateReminderTime(hour: Int, minute: Int) {
         _reminderHour.value = hour
         _reminderMinute.value = minute
@@ -943,7 +944,17 @@ class ExpenseViewModel(application: Application) : AndroidViewModel(application)
 
     fun addCreditCard(cardName: String) {
         viewModelScope.launch {
-            repository.insertCreditCard(CreditCard(cardName = cardName))
+            if (cardName.isNotBlank()) {
+                repository.insertCreditCard(CreditCard(cardName = cardName.trim()))
+            }
+        }
+    }
+
+    fun updateCreditCard(card: CreditCard) {
+        viewModelScope.launch {
+            if (card.cardName.isNotBlank()) {
+                repository.updateCreditCard(card)
+            }
         }
     }
 

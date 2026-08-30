@@ -246,6 +246,7 @@ class MainActivity : ComponentActivity() {
                         viewModel.setActiveEnrichId(null)
                     }
                 },
+                onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },
                 onNavigateBack = {
                     viewModel.setActiveEnrichId(null)
                 }
@@ -288,7 +289,7 @@ class MainActivity : ComponentActivity() {
                             label = { Text("Activity", fontWeight = if (currentTab == AppTab.ACTIVITY) FontWeight.Bold else FontWeight.Medium) },
                             icon = {
                                 Icon(
-                                    imageVector = if (currentTab == AppTab.ACTIVITY) Icons.Filled.ReceiptLong else Icons.Outlined.ReceiptLong,
+                                    imageVector = if (currentTab == AppTab.ACTIVITY) Icons.AutoMirrored.Filled.ReceiptLong else Icons.AutoMirrored.Outlined.ReceiptLong,
                                     contentDescription = "Activity"
                                 )
                             },
@@ -382,7 +383,12 @@ class MainActivity : ComponentActivity() {
                                 onExportPdfCalendar = { txns -> performExportPdf(txns) },
                                 primaryCurrency = primaryCurrency,
                                 onConvertAmount = { amount, fromCurrency -> viewModel.convertAmount(amount, fromCurrency, primaryCurrency) },
-                                onAddExpenseClicked = { currentTab = AppTab.ADD_MANUAL }
+                                onAddExpenseClicked = { currentTab = AppTab.ADD_MANUAL },
+                                onNavigateToActivity = { currentTab = AppTab.ACTIVITY },
+                                onNavigateToLists = { currentTab = AppTab.PLANNED_LISTS },
+                                onNavigateToInsights = { currentTab = AppTab.INSIGHTS },
+                                onScanReceiptClicked = { showQuickAddModal = true },
+                                onAddIncomeClicked = { currentTab = AppTab.ADD_MANUAL }
                             )
                         }
 
@@ -397,7 +403,8 @@ class MainActivity : ComponentActivity() {
                                 onExportPdf = { onExportPdfClick(allTransactions) },
                                 onSearchClicked = { showFilterScreen = true },
                                 primaryCurrency = primaryCurrency,
-                                onConvertAmount = { amount, fromCurrency -> viewModel.convertAmount(amount, fromCurrency, primaryCurrency) }
+                                onConvertAmount = { amount, fromCurrency -> viewModel.convertAmount(amount, fromCurrency, primaryCurrency) },
+                                onNavigateToCategories = { currentTab = AppTab.CATEGORIES }
                             )
                         }
 
@@ -411,6 +418,7 @@ class MainActivity : ComponentActivity() {
                                 selectedFilter = selectedFilter,
                                 onFilterSelected = { filter -> viewModel.setTimeboxFilter(filter) },
                                 onNavigateToCategories = { currentTab = AppTab.CATEGORIES },
+                                allTransactions = allTransactions,
                                 primaryCurrency = primaryCurrency
                             )
                         }
@@ -426,6 +434,7 @@ class MainActivity : ComponentActivity() {
                                     viewModel.addManualTransaction(amount, type, merchant, catId, notes, method, date, recurringFreq, subCat, paidViaCcId, repaidCcId, repaidTxnIds, currency)
                                     currentTab = AppTab.DASHBOARD // navigate back automatically
                                 },
+                                onAddCreditCard = { name -> viewModel.addCreditCard(name) },
                                 onNavigateBack = { currentTab = AppTab.DASHBOARD }
                             )
                         }
@@ -469,7 +478,8 @@ class MainActivity : ComponentActivity() {
                                 isMultiCurrencyEnabled = isMultiCurrencyEnabled,
                                 onToggleMultiCurrency = { enabled -> viewModel.updateMultiCurrencyEnabled(enabled) },
                                 primaryCurrency = primaryCurrency,
-                                onUpdatePrimaryCurrency = { currency -> viewModel.updatePrimaryCurrency(currency) }
+                                onUpdatePrimaryCurrency = { currency -> viewModel.updatePrimaryCurrency(currency) },
+                                onNavigateToCreditCards = { currentTab = AppTab.CREDIT_CARD }
                             )
                         }
 
@@ -515,7 +525,11 @@ class MainActivity : ComponentActivity() {
                                 },
                                 onExportStatement = { card, transactions ->
                                     onExportCsvClick(transactions)
-                                }
+                                },
+                                onAddCreditCard = { name -> viewModel.addCreditCard(name) },
+                                onEditCreditCard = { card -> viewModel.updateCreditCard(card) },
+                                onDeleteCreditCard = { card -> viewModel.deleteCreditCard(card) },
+                                onNavigateBack = { currentTab = AppTab.SETTINGS }
                             )
                         }
                     }
@@ -628,7 +642,52 @@ class MainActivity : ComponentActivity() {
                             }
                         }
 
-                        // 3. Scan Bill (Coming Soon)
+                        // 3. Credit Card Dues (if cards exist)
+                        if (creditCards.isNotEmpty()) {
+                            Card(
+                                onClick = {
+                                    showQuickAddModal = false
+                                    currentTab = AppTab.CREDIT_CARD
+                                },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(containerColor = com.ankitsudegora.ui.theme.DarkSurfaceElevated),
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(40.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xFF8B5CF6).copy(alpha = 0.2f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            Icons.Default.CreditCard,
+                                            contentDescription = null,
+                                            tint = Color(0xFF8B5CF6)
+                                        )
+                                    }
+                                    Column {
+                                        Text(
+                                            "Credit Card Dues",
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = com.ankitsudegora.ui.theme.DarkOnSurface
+                                        )
+                                        Text(
+                                            "View unbilled dues & statements",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = com.ankitsudegora.ui.theme.DarkOnSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        // 4. Scan Bill (Coming Soon)
                         Card(
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = com.ankitsudegora.ui.theme.DarkSurfaceElevated.copy(alpha = 0.5f)),

@@ -89,6 +89,7 @@ class ExpenseRepository(
     val allCreditCards: Flow<List<CreditCard>> = creditCardDao.getAllCardsFlow()
     suspend fun getAllCreditCards(): List<CreditCard> = creditCardDao.getAllCards()
     suspend fun insertCreditCard(card: CreditCard): Long = creditCardDao.insertCard(card)
+    suspend fun updateCreditCard(card: CreditCard) = creditCardDao.updateCard(card)
     suspend fun deleteCreditCard(card: CreditCard) = creditCardDao.deleteCard(card)
     suspend fun updateCcRepaymentIdForTransactions(repaymentId: Long, txnIds: List<Long>) {
         transactionDao.updateCcRepaymentIdForTransactions(repaymentId, txnIds)

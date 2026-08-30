@@ -31,6 +31,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.Transaction
 import com.ankitsudegora.ui.components.getIconVector
@@ -50,6 +51,7 @@ fun EnrichmentScreen(
     onGetTransaction: suspend (Long) -> Transaction?,
     onFinalizeTransaction: (id: Long, categoryId: Long, notes: String?, amount: Double, merchant: String, type: String, recurringFrequency: String?, subCategory: String?, paidViaCcId: Long?, repaidCcId: Long?, selectedRepaidTxnIds: List<Long>, linkedListId: Long?, refundedTxnId: Long?) -> Unit,
     onNavigateBack: () -> Unit,
+    onDeleteTransaction: ((Transaction) -> Unit)? = null,
     pendingCount: Int = 1,
     currentIndex: Int = 1,
     onSkipToNext: (() -> Unit)? = null
@@ -65,6 +67,9 @@ fun EnrichmentScreen(
     var merchant by remember { mutableStateOf("") }
     var notes by remember { mutableStateOf("") }
     var transactionType by remember { mutableStateOf("DEBIT") }
+    var paymentMethod by remember { mutableStateOf("UPI") }
+    var selectedCcId by remember { mutableStateOf<Long?>(null) }
+    var showDiscardDialog by remember { mutableStateOf(false) }
     var selectedCategoryId by remember { mutableStateOf<Long?>(null) }
     var subCategory by remember { mutableStateOf<String?>(null) }
     var showAdvancedDetails by remember { mutableStateOf(false) }
@@ -100,6 +105,8 @@ fun EnrichmentScreen(
             merchant = txn.merchant
             notes = txn.notes ?: ""
             transactionType = txn.type
+            paymentMethod = txn.paymentMethod ?: "UPI"
+            selectedCcId = txn.paidViaCcId
             val recommendedCat = if (txn.categoryId != null) null else {
                 CategoryClassifier.recommendCategory(txn.merchant, allTransactions, categories)
             }
@@ -155,6 +162,30 @@ fun EnrichmentScreen(
     }
 
     val isPending = existingTransaction?.isPending == true
+    var showAllCategories by remember { mutableStateOf(false) }
+    var notesExpanded by remember { mutableStateOf(notes.isNotBlank()) }
+    var paymentDetailsExpanded by remember { mutableStateOf(false) }
+
+    val dateFormatted = remember(existingTransaction?.timestamp) {
+        val date = Date(existingTransaction?.timestamp ?: System.currentTimeMillis())
+        val today = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(Date())
+        val txnDay = SimpleDateFormat("yyyyMMdd", Locale.getDefault()).format(date)
+        if (today == txnDay) "Today" else SimpleDateFormat("dd MMM", Locale.getDefault()).format(date)
+    }
+
+    // Top 3 suggested categories + more
+    val suggestedCategories = remember(filteredCategories, selectedCategoryId) {
+        val selCat = filteredCategories.find { it.id == selectedCategoryId }
+        val others = filteredCategories.filter { it.id != selectedCategoryId }.take(2)
+        val list = mutableListOf<Category>()
+        if (selCat != null) list.add(selCat)
+        list.addAll(others)
+        if (list.size < 3) {
+            val remaining = filteredCategories.filter { it !in list }.take(3 - list.size)
+            list.addAll(remaining)
+        }
+        list
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -163,576 +194,704 @@ fun EnrichmentScreen(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .verticalScroll(scrollState)
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .padding(horizontal = 20.dp, vertical = 14.dp)
         ) {
-            // Header with queue counter & skip option
+            // Top Bar with (X), Title, and (✓)
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 8.dp),
+                    .padding(bottom = 12.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 IconButton(
                     onClick = onNavigateBack,
                     modifier = Modifier
-                        .size(40.dp)
+                        .size(38.dp)
                         .clip(CircleShape)
                         .background(DarkSurfaceVariant)
                         .testTag("enrich_back_btn")
                 ) {
                     Icon(
-                        imageVector = Icons.AutoMirrored.Filled.ArrowBack,
-                        contentDescription = "Back",
+                        imageVector = Icons.Default.Close,
+                        contentDescription = "Close",
                         tint = DarkOnSurface
-                    )
-                }
-
-                Spacer(modifier = Modifier.width(12.dp))
-
-                Column(modifier = Modifier.weight(1f)) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        Text(
-                            text = if (isPending) "Review Expense" else "Edit Expense",
-                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
-                            color = DarkOnSurface
-                        )
-                        if (isPending && pendingCount > 1) {
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(DarkSurfaceElevated)
-                                    .padding(horizontal = 8.dp, vertical = 2.dp)
-                            ) {
-                                Text(
-                                    text = "$currentIndex of $pendingCount",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = BrandLime
-                                )
-                            }
-                        }
-                    }
-                    Text(
-                        text = if (isPending) "Verify and confirm in one tap" else "Update ledger details",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = DarkOnSurfaceVariant
                     )
                 }
 
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                ) {
-                    if (isPending && onSkipToNext != null) {
-                        TextButton(
-                            onClick = onSkipToNext,
-                            colors = ButtonDefaults.textButtonColors(contentColor = DarkOnSurfaceVariant)
-                        ) {
-                            Text(
-                                text = "Skip →",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold)
-                            )
-                        }
-                    }
-
-                    if (isPending) {
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(BrandLimeContainer)
-                                .padding(horizontal = 10.dp, vertical = 5.dp)
-                        ) {
-                            Text(
-                                text = "$confidenceScore% match",
-                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                color = BrandOnLimeContainer
-                            )
-                        }
-                    }
-                }
-            }
-
-            // Hero Review Card (Emotional Center)
-            Card(
-                shape = RoundedCornerShape(28.dp),
-                colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(24.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Transaction Type Badge
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(DarkSurfaceVariant)
-                            .padding(2.dp)
-                    ) {
-                        listOf("DEBIT" to "Spent", "CREDIT" to "Received").forEach { (typeKey, label) ->
-                            val isSel = transactionType == typeKey
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (isSel) BrandLime else Color.Transparent)
-                                    .clickable { transactionType = typeKey }
-                                    .padding(horizontal = 14.dp, vertical = 4.dp)
-                            ) {
-                                Text(
-                                    text = label,
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                    color = if (isSel) DarkBackground else DarkOnSurfaceVariant
-                                )
-                            }
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(16.dp))
-
-                    // Hero Large Amount
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "₹",
-                            style = MoneyTypography.HeroAmount.copy(color = BrandLime)
-                        )
-                        TextField(
-                            value = amountStr,
-                            onValueChange = { input ->
-                                if (input.isEmpty() || input.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
-                                    amountStr = input
-                                }
-                            },
-                            placeholder = { Text("0.00", style = MoneyTypography.HeroAmount.copy(color = DarkOnSurfaceVariant.copy(alpha = 0.3f))) },
-                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
-                            singleLine = true,
-                            colors = TextFieldDefaults.colors(
-                                focusedContainerColor = Color.Transparent,
-                                unfocusedContainerColor = Color.Transparent,
-                                focusedIndicatorColor = Color.Transparent,
-                                unfocusedIndicatorColor = Color.Transparent
-                            ),
-                            textStyle = MoneyTypography.HeroAmount.copy(
-                                color = DarkOnSurface,
-                                textAlign = TextAlign.Start
-                            ),
-                            modifier = Modifier.widthIn(max = 240.dp)
-                        )
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    // Merchant Field
-                    OutlinedTextField(
-                        value = merchant,
-                        onValueChange = { merchant = it },
-                        label = { Text("Merchant / Payee") },
-                        leadingIcon = {
-                            Icon(
-                                imageVector = Icons.Default.Storefront,
-                                contentDescription = null,
-                                tint = BrandLime
-                            )
-                        },
-                        singleLine = true,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = BrandLime,
-                            unfocusedBorderColor = DarkBorder,
-                            focusedContainerColor = DarkSurfaceVariant.copy(alpha = 0.5f),
-                            unfocusedContainerColor = DarkSurfaceVariant.copy(alpha = 0.5f),
-                            focusedLabelColor = BrandLime,
-                            unfocusedLabelColor = DarkOnSurfaceVariant
-                        ),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("enrich_merchant_input"),
-                        shape = RoundedCornerShape(14.dp)
-                    )
-
-                    Spacer(modifier = Modifier.height(12.dp))
-
-                    // Context Metadata (Date, Time, Bank Account source)
-                    val dateFormatted = SimpleDateFormat("EEE, dd MMM • hh:mm a", Locale.getDefault()).format(Date(existingTransaction?.timestamp ?: System.currentTimeMillis()))
-                    val sourceText = when (existingTransaction?.source) {
-                        "SMS", "NOTIFICATION" -> "Alert: ${existingTransaction?.smsSenderId ?: "Bank Notification"}"
-                        "RECURRING" -> "Recurring Scheduled Trigger"
-                        else -> "Manual Ledger Entry"
-                    }
-
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(DarkSurfaceVariant.copy(alpha = 0.6f))
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.AccessTime,
-                            contentDescription = null,
-                            tint = DarkOnSurfaceVariant,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "$dateFormatted • $sourceText",
-                            style = MaterialTheme.typography.labelSmall,
-                            color = DarkOnSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis
-                        )
-                    }
-                }
-            }
-
-            // Category Selection Matrix
-            Text(
-                text = "Select Category",
-                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                color = DarkOnSurface
-            )
-
-            BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
-                val columns = 4
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    filteredCategories.chunked(columns).forEach { row ->
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            row.forEach { cat ->
-                                val isSel = selectedCategoryId == cat.id
-                                val catColor = CategoryColors.getCategoryColor(cat.name)
-                                val containerCol = if (isSel) catColor.copy(alpha = 0.22f) else DarkSurface
-                                val borderCol = if (isSel) catColor else DarkBorder
-                                val contentCol = if (isSel) catColor else DarkOnSurfaceVariant
-
-                                Card(
-                                    onClick = { selectedCategoryId = cat.id },
-                                    shape = RoundedCornerShape(16.dp),
-                                    colors = CardDefaults.cardColors(containerColor = containerCol),
-                                    modifier = Modifier
-                                        .weight(1f)
-                                        .aspectRatio(1f),
-                                    border = androidx.compose.foundation.BorderStroke(if (isSel) 2.dp else 1.dp, borderCol)
-                                ) {
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .padding(6.dp),
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center
-                                    ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(32.dp)
-                                                .clip(CircleShape)
-                                                .background(if (isSel) catColor.copy(alpha = 0.3f) else DarkSurfaceVariant),
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                imageVector = getIconVector(cat.iconResName),
-                                                contentDescription = cat.name,
-                                                tint = contentCol,
-                                                modifier = Modifier.size(18.dp)
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = cat.name,
-                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium),
-                                            color = if (isSel) DarkOnSurface else DarkOnSurfaceVariant,
-                                            textAlign = TextAlign.Center,
-                                            maxLines = 1,
-                                            overflow = TextOverflow.Ellipsis
-                                        )
-                                    }
-                                }
-                            }
-                            if (row.size < columns) {
-                                repeat(columns - row.size) {
-                                    Spacer(modifier = Modifier.weight(1f))
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Note (Optional) Input
-            OutlinedTextField(
-                value = notes,
-                onValueChange = { notes = it },
-                label = { Text("Note (Optional)") },
-                placeholder = { Text("e.g. Lunch with team, monthly groceries") },
-                leadingIcon = {
-                    Icon(
-                        imageVector = Icons.AutoMirrored.Filled.Notes,
-                        contentDescription = null,
-                        tint = DarkOnSurfaceVariant
-                    )
-                },
-                singleLine = true,
-                colors = OutlinedTextFieldDefaults.colors(
-                    focusedBorderColor = BrandLime,
-                    unfocusedBorderColor = DarkBorder,
-                    focusedContainerColor = DarkSurface,
-                    unfocusedContainerColor = DarkSurface,
-                    focusedLabelColor = BrandLime,
-                    unfocusedLabelColor = DarkOnSurfaceVariant
-                ),
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp)
-            )
-
-            // Primary 1-Tap Confirmation & Secondary Toggle Row
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                OutlinedButton(
-                    onClick = { showAdvancedDetails = !showAdvancedDetails },
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = DarkOnSurface),
-                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                    modifier = Modifier.height(52.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Text(
-                        text = if (showAdvancedDetails) "Less ▲" else "More ▼",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        text = if (isPending) "Review Expense" else "Edit Expense",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface
                     )
+                    if (isPending && pendingCount > 1) {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(DarkSurfaceElevated)
+                                .padding(horizontal = 8.dp, vertical = 2.dp)
+                        ) {
+                            Text(
+                                text = "$currentIndex of $pendingCount",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = BrandLime
+                            )
+                        }
+                    }
                 }
 
-                Button(
-                    onClick = {
-                        val amt = amountStr.toDoubleOrNull() ?: existingTransaction!!.amount
-                        val catId = selectedCategoryId ?: filteredCategories.firstOrNull()?.id ?: 0L
-                        val freq = if (isRecurringChecked) selectedFrequency else null
-                        val ccId = null
-                        val repCcId = null
-                        val repTxnIds = emptyList<Long>()
-
-                        onFinalizeTransaction(
-                            transactionId,
-                            catId,
-                            notes.trim().ifBlank { null },
-                            amt,
-                            merchant.trim().ifBlank { "Unknown Merchant" },
-                            transactionType,
-                            freq,
-                            subCategory,
-                            ccId,
-                            repCcId,
-                            repTxnIds,
-                            selectedLinkedListId,
-                            selectedRefundedTxnId
-                        )
-                        onNavigateBack()
-                    },
-                    enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = ButtonDefaults.buttonColors(
-                        containerColor = BrandLime,
-                        contentColor = DarkBackground
-                    ),
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(52.dp)
-                        .testTag("save_enrichment_button")
+                // Top Action Buttons
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    if (isPending) {
+                        IconButton(
+                            onClick = { showDiscardDialog = true },
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(DarkError.copy(alpha = 0.15f))
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.DeleteOutline,
+                                contentDescription = "Discard",
+                                tint = DarkError
+                            )
+                        }
+                    }
+
+                    // Top (✓) confirm button
+                    IconButton(
+                        onClick = {
+                            val amt = amountStr.toDoubleOrNull() ?: existingTransaction!!.amount
+                            val catId = selectedCategoryId ?: filteredCategories.firstOrNull()?.id ?: 0L
+                            val freq = if (isRecurringChecked) selectedFrequency else null
+
+                            onFinalizeTransaction(
+                                transactionId,
+                                catId,
+                                notes.trim().ifBlank { null },
+                                amt,
+                                merchant.trim().ifBlank { "Unknown Merchant" },
+                                transactionType,
+                                freq,
+                                subCategory,
+                                selectedCcId,
+                                null,
+                                emptyList(),
+                                selectedLinkedListId,
+                                selectedRefundedTxnId
+                            )
+                            if (onSkipToNext != null && pendingCount > 1) {
+                                onSkipToNext()
+                            } else {
+                                onNavigateBack()
+                            }
+                        },
+                        enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),
+                        modifier = Modifier
+                            .size(38.dp)
+                            .clip(CircleShape)
+                            .background(
+                                if (amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank())
+                                    BrandLime else DarkSurfaceVariant
+                            )
                     ) {
                         Icon(
                             imageVector = Icons.Default.Check,
-                            contentDescription = null,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Text(
-                            text = if (isPending) "Confirm ✓" else "Save Changes",
-                            style = MaterialTheme.typography.labelLarge.copy(fontWeight = FontWeight.ExtraBold)
+                            contentDescription = "Save",
+                            tint = if (amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank())
+                                DarkBackground else DarkOnSurfaceVariant
                         )
                     }
                 }
             }
 
-            // Expandable Advanced Details Section (Subcategories, Recurring, Planned list mapping)
-            AnimatedVisibility(
-                visible = showAdvancedDetails,
-                enter = expandVertically(),
-                exit = shrinkVertically()
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .verticalScroll(scrollState),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
             ) {
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(14.dp)
+                // 1. Big & Clear Hero Amount Card (Matches Mockup)
+                Card(
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                    modifier = Modifier.fillMaxWidth()
                 ) {
-                    // SubCategory chips
-                    if (subCategoryOptions.isNotEmpty()) {
-                        Text(
-                            text = "Specific Sub-Category",
-                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                            color = DarkOnSurface
-                        )
+                    Column(
+                        modifier = Modifier.padding(20.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
                         Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .horizontalScroll(rememberScrollState()),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            subCategoryOptions.forEach { option ->
-                                val isSel = subCategory == option
-                                FilterChip(
-                                    selected = isSel,
-                                    onClick = { subCategory = if (isSel) null else option },
-                                    label = { Text(option, style = MaterialTheme.typography.labelSmall) },
-                                    colors = FilterChipDefaults.filterChipColors(
-                                        selectedContainerColor = BrandLimeContainer,
-                                        selectedLabelColor = BrandOnLimeContainer,
-                                        containerColor = DarkSurface,
-                                        labelColor = DarkOnSurfaceVariant
+                            Text(
+                                text = "Amount",
+                                style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold),
+                                color = DarkOnSurfaceVariant
+                            )
+
+                            // Date Pill on Top-Right
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(DarkSurfaceVariant)
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.CalendarToday,
+                                        contentDescription = null,
+                                        tint = DarkOnSurfaceVariant,
+                                        modifier = Modifier.size(12.dp)
                                     )
+                                    Text(
+                                        text = dateFormatted,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold),
+                                        color = DarkOnSurface
+                                    )
+                                }
+                            }
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "₹",
+                                style = MoneyTypography.HeroAmount.copy(color = BrandLime),
+                                modifier = Modifier.padding(end = 4.dp)
+                            )
+                            TextField(
+                                value = amountStr,
+                                onValueChange = { input ->
+                                    if (input.isEmpty() || input.matches(Regex("^\\d*\\.?\\d{0,2}$"))) {
+                                        amountStr = input
+                                    }
+                                },
+                                placeholder = { Text("0.00", style = MoneyTypography.HeroAmount.copy(color = DarkOnSurfaceVariant.copy(alpha = 0.3f))) },
+                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Decimal),
+                                singleLine = true,
+                                colors = TextFieldDefaults.colors(
+                                    focusedContainerColor = Color.Transparent,
+                                    unfocusedContainerColor = Color.Transparent,
+                                    focusedIndicatorColor = Color.Transparent,
+                                    unfocusedIndicatorColor = Color.Transparent,
+                                    focusedTextColor = DarkOnSurface,
+                                    unfocusedTextColor = DarkOnSurface
+                                ),
+                                textStyle = MoneyTypography.HeroAmount.copy(color = DarkOnSurface)
+                            )
+                        }
+                    }
+                }
+
+                // 2. Smart Merchant Input with (x) clear button
+                OutlinedTextField(
+                    value = merchant,
+                    onValueChange = { merchant = it },
+                    label = { Text("Merchant / Payee", color = DarkOnSurfaceVariant) },
+                    leadingIcon = {
+                        Icon(
+                            imageVector = Icons.Default.Storefront,
+                            contentDescription = null,
+                            tint = BrandLime
+                        )
+                    },
+                    trailingIcon = if (merchant.isNotEmpty()) {
+                        {
+                            IconButton(onClick = { merchant = "" }) {
+                                Icon(Icons.Default.Clear, contentDescription = "Clear", tint = DarkOnSurfaceVariant)
+                            }
+                        }
+                    } else null,
+                    singleLine = true,
+                    colors = OutlinedTextFieldDefaults.colors(
+                        focusedBorderColor = BrandLime,
+                        unfocusedBorderColor = DarkBorder,
+                        focusedContainerColor = DarkSurface,
+                        unfocusedContainerColor = DarkSurface,
+                        focusedTextColor = DarkOnSurface,
+                        unfocusedTextColor = DarkOnSurface
+                    ),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("enrich_merchant_input"),
+                    shape = RoundedCornerShape(14.dp)
+                )
+
+                // 3. Suggested Category (Top 3 AI Matches + Confidence % + More)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Suggested Category",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        suggestedCategories.forEach { cat ->
+                            val isSel = selectedCategoryId == cat.id
+                            val catColor = CategoryColors.getCategoryColor(cat.name)
+                            val matchPct = if (isSel) confidenceScore else (confidenceScore - 15).coerceAtLeast(60)
+
+                            Card(
+                                onClick = { selectedCategoryId = cat.id },
+                                shape = RoundedCornerShape(16.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSel) DarkSurfaceElevated else DarkSurface
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    if (isSel) 1.5.dp else 1.dp,
+                                    if (isSel) BrandLime else DarkBorder
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(96.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(8.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(30.dp)
+                                            .clip(CircleShape)
+                                            .background(catColor.copy(alpha = if (isSel) 0.3f else 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            imageVector = getIconVector(cat.iconResName),
+                                            contentDescription = cat.name,
+                                            tint = catColor,
+                                            modifier = Modifier.size(16.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = cat.name,
+                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium),
+                                        color = if (isSel) DarkOnSurface else DarkOnSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                    Text(
+                                        text = "$matchPct% match",
+                                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                        color = if (isSel) BrandLime else DarkOnSurfaceVariant.copy(alpha = 0.7f)
+                                    )
+                                }
+                            }
+                        }
+
+                        // More Categories Card
+                        Card(
+                            onClick = { showAllCategories = !showAllCategories },
+                            shape = RoundedCornerShape(16.dp),
+                            colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                            modifier = Modifier
+                                .weight(0.8f)
+                                .height(96.dp)
+                        ) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .padding(8.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.MoreHoriz,
+                                    contentDescription = "More Categories",
+                                    tint = DarkOnSurfaceVariant,
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (showAllCategories) "Less" else "More",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = DarkOnSurfaceVariant
                                 )
                             }
                         }
                     }
 
-                    // Recurring Schedule Card
-                    Card(
-                        shape = RoundedCornerShape(16.dp),
-                        colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                        border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .testTag("recurring_settings_card")
+                    // Full Categories Grid if "More" is toggled
+                    AnimatedVisibility(visible = showAllCategories) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 8.dp)) {
+                            filteredCategories.chunked(4).forEach { row ->
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    row.forEach { cat ->
+                                        val isSel = selectedCategoryId == cat.id
+                                        val catColor = CategoryColors.getCategoryColor(cat.name)
+                                        Card(
+                                            onClick = {
+                                                selectedCategoryId = cat.id
+                                                showAllCategories = false
+                                            },
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = CardDefaults.cardColors(
+                                                containerColor = if (isSel) DarkSurfaceElevated else DarkSurface
+                                            ),
+                                            border = androidx.compose.foundation.BorderStroke(
+                                                if (isSel) 1.5.dp else 1.dp,
+                                                if (isSel) BrandLime else DarkBorder
+                                            ),
+                                            modifier = Modifier
+                                                .weight(1f)
+                                                .aspectRatio(1f)
+                                        ) {
+                                            Column(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .padding(4.dp),
+                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                verticalArrangement = Arrangement.Center
+                                            ) {
+                                                Icon(
+                                                    imageVector = getIconVector(cat.iconResName),
+                                                    contentDescription = cat.name,
+                                                    tint = catColor,
+                                                    modifier = Modifier.size(18.dp)
+                                                )
+                                                Spacer(modifier = Modifier.height(4.dp))
+                                                Text(
+                                                    text = cat.name,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp),
+                                                    color = DarkOnSurface,
+                                                    maxLines = 1,
+                                                    overflow = TextOverflow.Ellipsis
+                                                )
+                                            }
+                                        }
+                                    }
+                                    if (row.size < 4) {
+                                        repeat(4 - row.size) {
+                                            Spacer(modifier = Modifier.weight(1f))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // 4. Quick Payment Method Row (UPI, Card, Cash, Netbanking)
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(
+                        text = "Payment Method",
+                        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                     ) {
-                        Column(
-                            modifier = Modifier.padding(14.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        listOf(
+                            Triple("UPI", Icons.Default.QrCodeScanner, "UPI"),
+                            Triple("CARD", Icons.Default.CreditCard, "Card"),
+                            Triple("CASH", Icons.Default.Payments, "Cash"),
+                            Triple("NETBANKING", Icons.Default.AccountBalance, "Netbanking")
+                        ).forEach { (modeKey, icon, label) ->
+                            val isSel = paymentMethod.equals(modeKey, ignoreCase = true)
+                            Card(
+                                onClick = { paymentMethod = modeKey },
+                                shape = RoundedCornerShape(14.dp),
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (isSel) DarkSurfaceElevated else DarkSurface
+                                ),
+                                border = androidx.compose.foundation.BorderStroke(
+                                    if (isSel) 1.5.dp else 1.dp,
+                                    if (isSel) BrandLime else DarkBorder
+                                ),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .height(64.dp)
+                            ) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .padding(6.dp),
+                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                    verticalArrangement = Arrangement.Center
+                                ) {
+                                    Icon(
+                                        imageVector = icon,
+                                        contentDescription = label,
+                                        tint = if (isSel) BrandLime else DarkOnSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                    Spacer(modifier = Modifier.height(4.dp))
+                                    Text(
+                                        text = label,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Medium
+                                        ),
+                                        color = if (isSel) DarkOnSurface else DarkOnSurfaceVariant
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                    // RuPay Credit Card on UPI Smart Link
+                    if (paymentMethod.equals("UPI", ignoreCase = true) && creditCards.isNotEmpty()) {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = if (selectedCcId != null) BrandLimeContainer.copy(alpha = 0.35f) else DarkSurfaceVariant.copy(alpha = 0.6f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (selectedCcId != null) BrandLime else DarkBorder),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    if (selectedCcId != null) selectedCcId = null
+                                    else selectedCcId = creditCards.first().id
+                                }
                         ) {
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
                                 Row(
-                                    modifier = Modifier.weight(1f),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Autorenew,
-                                        contentDescription = null,
-                                        tint = if (isRecurringChecked) BrandLime else DarkOnSurfaceVariant
-                                    )
+                                    Text("⚡", fontSize = 14.sp)
                                     Column {
                                         Text(
-                                            text = "Designate as Recurring",
-                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                            color = DarkOnSurface
+                                            text = if (selectedCcId != null) "Paid via RuPay CC: ${creditCards.find { it.id == selectedCcId }?.cardName}"
+                                            else "Paid using RuPay Credit Card on UPI?",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                            color = if (selectedCcId != null) BrandOnLimeContainer else DarkOnSurface
                                         )
                                         Text(
-                                            text = "Auto-trigger on schedule",
-                                            style = MaterialTheme.typography.labelSmall,
+                                            text = if (selectedCcId != null) "Linked to Credit Card statement dues"
+                                            else "Tap to link expense to your Credit Card",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
                                             color = DarkOnSurfaceVariant
                                         )
                                     }
                                 }
-                                Switch(
-                                    checked = isRecurringChecked,
-                                    onCheckedChange = { isRecurringChecked = it },
-                                    colors = SwitchDefaults.colors(
-                                        checkedThumbColor = DarkBackground,
-                                        checkedTrackColor = BrandLime
-                                    ),
-                                    modifier = Modifier.testTag("enrich_recurring_switch")
-                                )
-                            }
-
-                            if (isRecurringChecked) {
-                                HorizontalDivider(color = DarkBorder)
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
-                                ) {
-                                    listOf("DAILY" to "Daily", "WEEKLY" to "Weekly", "MONTHLY" to "Monthly", "YEARLY" to "Yearly").forEach { (freqKey, label) ->
-                                        val isSel = selectedFrequency == freqKey
-                                        FilterChip(
-                                            selected = isSel,
-                                            onClick = { selectedFrequency = freqKey },
-                                            label = { Text(label, style = MaterialTheme.typography.labelSmall) },
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .testTag("freq_chip_$freqKey"),
-                                            colors = FilterChipDefaults.filterChipColors(
-                                                selectedContainerColor = BrandLimeContainer,
-                                                selectedLabelColor = BrandOnLimeContainer,
-                                                containerColor = DarkSurfaceVariant,
-                                                labelColor = DarkOnSurfaceVariant
-                                            )
-                                        )
-                                    }
+                                if (selectedCcId != null) {
+                                    Icon(Icons.Default.CheckCircle, contentDescription = "Linked", tint = BrandLime, modifier = Modifier.size(16.dp))
+                                } else {
+                                    Text("Link Card", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = BrandLime))
                                 }
                             }
                         }
                     }
+                }
 
-                    // Link to Planned Checklist
-                    if (transactionType == "DEBIT" && allPlannedLists.isNotEmpty()) {
-                        Card(
-                            shape = RoundedCornerShape(16.dp),
-                            colors = CardDefaults.cardColors(containerColor = DarkSurface),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                            modifier = Modifier.fillMaxWidth()
+                // 5. Collapsible Optional Notes & Details (Less is More)
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { notesExpanded = !notesExpanded },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
-                            Column(
-                                modifier = Modifier.padding(14.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
+                                Icon(Icons.Default.EditNote, null, tint = DarkOnSurfaceVariant, modifier = Modifier.size(18.dp))
                                 Text(
-                                    text = "Link to Shopping / Planned List",
-                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
-                                    color = DarkOnSurface
+                                    text = if (notes.isBlank()) "Notes (Optional)" else "Notes: $notes",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = if (notes.isBlank()) DarkOnSurfaceVariant else DarkOnSurface,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
                                 )
-                                val chosenList = allPlannedLists.find { it.plannedList.id == selectedLinkedListId }
-                                Box(modifier = Modifier.fillMaxWidth()) {
-                                    OutlinedButton(
-                                        onClick = { listDropdownExpanded = true },
-                                        modifier = Modifier.fillMaxWidth(),
-                                        shape = RoundedCornerShape(10.dp),
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = DarkOnSurface)
+                            }
+                            Icon(
+                                imageVector = if (notesExpanded) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = DarkOnSurfaceVariant
+                            )
+                        }
+
+                        if (notesExpanded) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            OutlinedTextField(
+                                value = notes,
+                                onValueChange = { notes = it },
+                                placeholder = { Text("Add transaction notes or tags", color = DarkOnSurfaceVariant.copy(alpha = 0.5f)) },
+                                singleLine = false,
+                                maxLines = 3,
+                                colors = OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = BrandLime,
+                                    unfocusedBorderColor = DarkBorder,
+                                    focusedContainerColor = DarkSurfaceVariant.copy(alpha = 0.3f),
+                                    unfocusedContainerColor = DarkSurfaceVariant.copy(alpha = 0.3f),
+                                    focusedTextColor = DarkOnSurface,
+                                    unfocusedTextColor = DarkOnSurface
+                                ),
+                                modifier = Modifier.fillMaxWidth(),
+                                shape = RoundedCornerShape(10.dp)
+                            )
+                        }
+                    }
+                }
+
+                // 6. More Options (Recurring, Checklist, Subcategories)
+                Card(
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = DarkSurface),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Column(modifier = Modifier.padding(14.dp)) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable { showAdvancedDetails = !showAdvancedDetails },
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "More options",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = DarkOnSurfaceVariant
+                            )
+                            Icon(
+                                imageVector = if (showAdvancedDetails) Icons.Default.KeyboardArrowUp else Icons.Default.KeyboardArrowDown,
+                                contentDescription = null,
+                                tint = DarkOnSurfaceVariant
+                            )
+                        }
+                        if (showAdvancedDetails) {
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                // Subcategories
+                                if (subCategoryOptions.isNotEmpty()) {
+                                    Text("Specific Sub-Category", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
+                                    Row(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .horizontalScroll(rememberScrollState()),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        Text(chosenList?.plannedList?.name ?: "Select List (Optional)", modifier = Modifier.weight(1f))
-                                        Icon(Icons.Default.ArrowDropDown, null)
+                                        subCategoryOptions.forEach { option ->
+                                            val isSel = subCategory == option
+                                            FilterChip(
+                                                selected = isSel,
+                                                onClick = { subCategory = if (isSel) null else option },
+                                                label = { Text(option, style = MaterialTheme.typography.labelSmall) },
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = BrandLimeContainer,
+                                                    selectedLabelColor = BrandOnLimeContainer,
+                                                    containerColor = DarkSurfaceVariant,
+                                                    labelColor = DarkOnSurfaceVariant
+                                                )
+                                            )
+                                        }
                                     }
-                                    DropdownMenu(
-                                        expanded = listDropdownExpanded,
-                                        onDismissRequest = { listDropdownExpanded = false }
+                                }
+
+                                // Recurring switch
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Column {
+                                        Text("Designate as Recurring", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
+                                        Text("Auto-trigger on schedule", style = MaterialTheme.typography.labelSmall, color = DarkOnSurfaceVariant)
+                                    }
+                                    Switch(
+                                        checked = isRecurringChecked,
+                                        onCheckedChange = { isRecurringChecked = it },
+                                        colors = SwitchDefaults.colors(checkedThumbColor = DarkBackground, checkedTrackColor = BrandLime)
+                                    )
+                                }
+
+                                if (isRecurringChecked) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
                                     ) {
-                                        DropdownMenuItem(
-                                            text = { Text("None") },
-                                            onClick = {
-                                                selectedLinkedListId = null
-                                                listDropdownExpanded = false
-                                            }
-                                        )
-                                        allPlannedLists.forEach { pl ->
+                                        listOf("DAILY" to "Daily", "WEEKLY" to "Weekly", "MONTHLY" to "Monthly", "YEARLY" to "Yearly").forEach { (freqKey, label) ->
+                                            val isSel = selectedFrequency == freqKey
+                                            FilterChip(
+                                                selected = isSel,
+                                                onClick = { selectedFrequency = freqKey },
+                                                label = { Text(label, style = MaterialTheme.typography.labelSmall) },
+                                                modifier = Modifier.weight(1f),
+                                                colors = FilterChipDefaults.filterChipColors(
+                                                    selectedContainerColor = BrandLimeContainer,
+                                                    selectedLabelColor = BrandOnLimeContainer,
+                                                    containerColor = DarkSurfaceVariant,
+                                                    labelColor = DarkOnSurfaceVariant
+                                                )
+                                            )
+                                        }
+                                    }
+                                }
+
+                                // Link to Planned Checklist
+                                if (transactionType == "DEBIT" && allPlannedLists.isNotEmpty()) {
+                                    val chosenList = allPlannedLists.find { it.plannedList.id == selectedLinkedListId }
+                                    Text("Link to Shopping List", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
+                                    Box(modifier = Modifier.fillMaxWidth()) {
+                                        OutlinedButton(
+                                            onClick = { listDropdownExpanded = true },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            shape = RoundedCornerShape(10.dp),
+                                            colors = ButtonDefaults.outlinedButtonColors(contentColor = DarkOnSurface)
+                                        ) {
+                                            Text(chosenList?.plannedList?.name ?: "Select List (Optional)", modifier = Modifier.weight(1f))
+                                            Icon(Icons.Default.ArrowDropDown, null)
+                                        }
+                                        DropdownMenu(
+                                            expanded = listDropdownExpanded,
+                                            onDismissRequest = { listDropdownExpanded = false }
+                                        ) {
                                             DropdownMenuItem(
-                                                text = { Text(pl.plannedList.name) },
+                                                text = { Text("None") },
                                                 onClick = {
-                                                    selectedLinkedListId = pl.plannedList.id
+                                                    selectedLinkedListId = null
                                                     listDropdownExpanded = false
                                                 }
                                             )
+                                            allPlannedLists.forEach { pl ->
+                                                DropdownMenuItem(
+                                                    text = { Text(pl.plannedList.name) },
+                                                    onClick = {
+                                                        selectedLinkedListId = pl.plannedList.id
+                                                        listDropdownExpanded = false
+                                                    }
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -740,9 +899,112 @@ fun EnrichmentScreen(
                         }
                     }
                 }
-            }
 
-            Spacer(modifier = Modifier.height(20.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+            // Fixed Bottom 1-Tap Save Button (No Duplicate Checkmark Icons)
+            Button(
+                onClick = {
+                    val amt = amountStr.toDoubleOrNull() ?: existingTransaction!!.amount
+                    val catId = selectedCategoryId ?: filteredCategories.firstOrNull()?.id ?: 0L
+                    val freq = if (isRecurringChecked) selectedFrequency else null
+
+                    onFinalizeTransaction(
+                        transactionId,
+                        catId,
+                        notes.trim().ifBlank { null },
+                        amt,
+                        merchant.trim().ifBlank { "Unknown Merchant" },
+                        transactionType,
+                        freq,
+                        subCategory,
+                        selectedCcId,
+                        null,
+                        emptyList(),
+                        selectedLinkedListId,
+                        selectedRefundedTxnId
+                    )
+                    if (onSkipToNext != null && pendingCount > 1) {
+                        onSkipToNext()
+                    } else {
+                        onNavigateBack()
+                    }
+                },
+                enabled = amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank(),
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = BrandLime,
+                    contentColor = DarkBackground,
+                    disabledContainerColor = DarkSurfaceVariant,
+                    disabledContentColor = DarkOnSurfaceVariant
+                ),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(54.dp)
+                    .testTag("save_enrichment_button")
+            ) {
+                Text(
+                    text = if (isPending && pendingCount > 1) "Confirm & Next →" else if (isPending) "Confirm" else "Save Expense",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
+                    color = if (amountStr.toDoubleOrNull() != null && amountStr.toDouble() > 0 && merchant.isNotBlank()) DarkBackground else DarkOnSurfaceVariant
+                )
+            }
+        }
+
+        if (showDiscardDialog && existingTransaction != null) {
+            AlertDialog(
+                onDismissRequest = { showDiscardDialog = false },
+                icon = {
+                    Icon(
+                        imageVector = Icons.Default.DeleteOutline,
+                        contentDescription = null,
+                        tint = DarkError,
+                        modifier = Modifier.size(28.dp)
+                    )
+                },
+                title = {
+                    Text(
+                        text = "Discard this spending?",
+                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface,
+                        textAlign = TextAlign.Center
+                    )
+                },
+                text = {
+                    Text(
+                        text = "This will exclude this transaction from your budget, analytics, and expense reports. You can always add it back manually if needed.",
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = DarkOnSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                },
+                confirmButton = {
+                    Button(
+                        onClick = {
+                            showDiscardDialog = false
+                            if (onDeleteTransaction != null) {
+                                onDeleteTransaction(existingTransaction!!)
+                            }
+                            if (onSkipToNext != null && pendingCount > 1) {
+                                onSkipToNext()
+                            } else {
+                                onNavigateBack()
+                            }
+                        },
+                        colors = ButtonDefaults.buttonColors(containerColor = DarkError, contentColor = Color.White),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Text("Discard Expense", fontWeight = FontWeight.Bold)
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showDiscardDialog = false }) {
+                        Text("Keep Spending", color = DarkOnSurfaceVariant)
+                    }
+                },
+                containerColor = DarkSurface,
+                shape = RoundedCornerShape(20.dp)
+            )
         }
     }
+}
 }

@@ -84,17 +84,38 @@ class TransactionNotificationListener : NotificationListenerService() {
                     }
                 }
 
+                // Smart RuPay Credit Card / CC detection
+                val allCards = db.creditCardDao().getAllCards()
+                val textLower = text.lowercase()
+                var detectedCcId: Long? = null
+                var detectedMethod = if (parsed.type == "DEBIT") "UPI" else "NETBANKING"
+
+                val isCardMentioned = textLower.contains("rupay") || textLower.contains("credit card") ||
+                        textLower.contains("card ending") || textLower.contains("cc ending") ||
+                        textLower.contains(" cc ") || textLower.contains("spent on card")
+
+                if (isCardMentioned && allCards.isNotEmpty()) {
+                    // Match last 4 digits if present in text
+                    val matchedByDigits = allCards.find { card ->
+                        val digits = card.cardName.filter { it.isDigit() }
+                        digits.length >= 4 && text.contains(digits.takeLast(4))
+                    }
+                    detectedCcId = matchedByDigits?.id ?: allCards.first().id
+                    detectedMethod = if (textLower.contains("upi")) "UPI" else "CARD"
+                }
+
                 val transaction = Transaction(
                     amount = parsed.amount,
                     type = parsed.type,
                     merchant = parsed.merchant,
-                    paymentMethod = if (parsed.type == "DEBIT") "UPI" else "NETBANKING",
+                    paymentMethod = detectedMethod,
                     isPending = true,
                     source = "NOTIFICATION",
                     smsSenderId = parsed.sender,
                     timestamp = System.currentTimeMillis(),
                     refNumber = parsed.refNumber,
-                    notes = text
+                    notes = text,
+                    paidViaCcId = detectedCcId
                 )
                 val id = db.transactionDao().insertTransaction(transaction)
                 Log.d("TxnNotification", "Saved notification transaction with ID: $id")

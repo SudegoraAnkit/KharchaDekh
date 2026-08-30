@@ -49,3 +49,19 @@ fun getIconVector(name: String): ImageVector {
         else -> Icons.Default.Category
     }
 }
+
+fun getCurrencySymbol(code: String?): String {
+    if (code == null) return "₹"
+    return when (code.uppercase()) {
+        "INR" -> "₹"
+        "USD" -> "$"
+        "EUR" -> "€"
+        "GBP" -> "£"
+        "JPY" -> "¥"
+        "AED" -> "د.إ"
+        "AUD" -> "A$"
+        "CAD" -> "C$"
+        "SGD" -> "S$"
+        else -> code
+    }
+}
