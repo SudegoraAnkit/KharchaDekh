@@ -65,3 +65,67 @@ fun getCurrencySymbol(code: String?): String {
         else -> code
     }
 }
+
+/**
+ * Dynamic Category Emoji Resolver.
+ * Fixes static burger icons by matching real category names to suitable emojis.
+ */
+fun getCategoryEmoji(categoryName: String?): String {
+    if (categoryName == null) return "💳"
+    val lower = categoryName.lowercase()
+    return when {
+        lower.contains("invest") || lower.contains("sip") || lower.contains("mutual") || lower.contains("stock") -> "📈"
+        lower.contains("food") || lower.contains("dining") || lower.contains("restaurant") || lower.contains("lunch") -> "🍽️"
+        lower.contains("snack") || lower.contains("chai") || lower.contains("tea") || lower.contains("coffee") -> "☕"
+        lower.contains("grocer") || lower.contains("kirana") || lower.contains("ration") -> "🛒"
+        lower.contains("fuel") || lower.contains("petrol") || lower.contains("diesel") || lower.contains("cab") || lower.contains("taxi") || lower.contains("auto") -> "🚗"
+        lower.contains("travel") || lower.contains("metro") || lower.contains("flight") || lower.contains("train") -> "🚆"
+        lower.contains("bill") || lower.contains("utilit") || lower.contains("recharge") || lower.contains("electricity") || lower.contains("bijli") -> "⚡"
+        lower.contains("rent") || lower.contains("home") || lower.contains("flat") || lower.contains("society") -> "🏠"
+        lower.contains("movie") || lower.contains("entertain") || lower.contains("ott") || lower.contains("netflix") -> "🎬"
+        lower.contains("shop") || lower.contains("cloth") || lower.contains("lifestyle") -> "🛍️"
+        lower.contains("health") || lower.contains("medic") || lower.contains("doctor") || lower.contains("pharmacy") -> "💊"
+        lower.contains("emi") || lower.contains("loan") -> "🏦"
+        lower.contains("domestic") || lower.contains("maid") || lower.contains("cook") || lower.contains("driver") -> "🧹"
+        lower.contains("insurance") || lower.contains("policy") -> "🛡️"
+        lower.contains("tax") || lower.contains("gst") -> "📄"
+        lower.contains("gift") || lower.contains("charity") || lower.contains("pooja") || lower.contains("shagun") -> "🎁"
+        lower.contains("creditcard") || lower.contains("card") -> "💳"
+        lower.contains("salary") || lower.contains("income") -> "💼"
+        lower.contains("freelance") || lower.contains("hustle") -> "💻"
+        lower.contains("cashback") || lower.contains("reward") -> "🎉"
+        lower.contains("refund") -> "↩️"
+        lower.contains("subscript") -> "📱"
+        lower.contains("pet") -> "🐾"
+        lower.contains("course") || lower.contains("school") || lower.contains("study") -> "🎓"
+        else -> "🏷️"
+    }
+}
+
+/**
+ * Localized Display Names tailored for Indian Audience without altering database keys.
+ */
+fun getLocalizedCategoryDisplayName(name: String?): String {
+    if (name == null) return "General"
+    val lower = name.lowercase().trim()
+    return when (lower) {
+        "food & dining" -> "Food & Dining"
+        "groceries" -> "Groceries & Kirana"
+        "fuel & travel" -> "Fuel, Auto & Metro"
+        "bills & utilities" -> "Bills, Recharge & Bijli"
+        "rent & maintenance" -> "Rent & Society Maintenance"
+        "sip/invest" -> "SIP & Investments"
+        "emi & loans" -> "EMI & Loans"
+        "domestic help" -> "Domestic Help & Maid"
+        "health & medical" -> "Health & Medical"
+        "entertainment" -> "Entertainment & OTT"
+        "shopping" -> "Shopping & Lifestyle"
+        "gifts & charity" -> "Gifts, Shagun & Charity"
+        "creditcard payment" -> "Credit Card Repayment"
+        "salary" -> "Salary & Inflow"
+        "freelance/side hustle" -> "Freelance & Side Hustle"
+        "cashback & rewards" -> "Cashback & Rewards"
+        "refund" -> "Refunds & Reversals"
+        else -> name
+    }
+}

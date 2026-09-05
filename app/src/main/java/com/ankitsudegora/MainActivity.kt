@@ -396,6 +396,7 @@ class MainActivity : ComponentActivity() {
                             ActivityScreen(
                                 allTransactions = allTransactions,
                                 categories = categories,
+                                monthlyIncome = monthlyIncome,
                                 billingCycleStartDay = billingCycleStartDay,
                                 onEnrichTransaction = { id -> viewModel.setActiveEnrichId(id) },
                                 onDeleteTransaction = { txn -> viewModel.deleteTransaction(txn) },

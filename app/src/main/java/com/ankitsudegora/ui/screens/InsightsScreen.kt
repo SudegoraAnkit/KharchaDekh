@@ -36,6 +36,8 @@ import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.TransactionWithCategory
 import com.ankitsudegora.ui.components.getIconVector
 import com.ankitsudegora.ui.components.getCurrencySymbol
+import com.ankitsudegora.ui.components.getCategoryEmoji
+import com.ankitsudegora.ui.components.getLocalizedCategoryDisplayName
 import com.ankitsudegora.ui.components.WhatChangedDetailSheet
 import com.ankitsudegora.ui.components.WeeklyRecapStoryModal
 import com.ankitsudegora.ui.components.WeeklyRecapManager
@@ -207,38 +209,53 @@ fun InsightsScreen(
         }
     }
 
-    // Small purchases analysis (< ₹150)
-    val smallPurchases = remember(thisMonthTxns) {
-        val list = thisMonthTxns.filter { it.transaction.amount < 150.0 }
+    // Small purchases analysis (< ₹150) with float/double precision
+    val smallPurchases = remember(thisMonthTxns, totalSpent) {
+        val list = thisMonthTxns.filter { it.transaction.amount < 150.0 && it.transaction.type.equals("DEBIT", ignoreCase = true) }
         val sum = list.sumOf { it.transaction.amount }
-        val pctOfTotal = if (totalSpent > 0) ((sum / totalSpent) * 100).toInt() else 0
-        Triple(list.size, sum, pctOfTotal)
+        val pctOfTotal = if (totalSpent > 0) (sum / totalSpent) * 100.0 else 0.0
+        val formattedPct = if (pctOfTotal > 0.0 && pctOfTotal < 1.0) {
+            String.format(java.util.Locale.US, "%.2f%%", pctOfTotal)
+        } else {
+            String.format(java.util.Locale.US, "%.1f%%", pctOfTotal)
+        }
+        Triple(list.size, sum, formattedPct)
     }
 
     // Weekend vs Weekday analysis
+    val weekendTransactions = remember(thisMonthTxns) {
+        thisMonthTxns.filter {
+            val tCal = Calendar.getInstance().apply { timeInMillis = it.transaction.timestamp }
+            val dow = tCal.get(Calendar.DAY_OF_WEEK)
+            (dow == Calendar.SATURDAY || dow == Calendar.SUNDAY) && it.transaction.type.equals("DEBIT", ignoreCase = true)
+        }
+    }
+    val weekendSum = remember(weekendTransactions) { weekendTransactions.sumOf { it.transaction.amount } }
+
     val weekendStats = remember(thisMonthTxns) {
-        var weekendSum = 0.0
-        var weekdaySum = 0.0
+        var wSum = 0.0
+        var dSum = 0.0
         var weekendDays = 0
         var weekdayDays = 0
         val seenDays = mutableSetOf<String>()
-        thisMonthTxns.forEach { txn ->
+        thisMonthTxns.filter { it.transaction.type.equals("DEBIT", ignoreCase = true) }.forEach { txn ->
             val tCal = Calendar.getInstance().apply { timeInMillis = txn.transaction.timestamp }
             val dow = tCal.get(Calendar.DAY_OF_WEEK)
             val dayKey = "${tCal.get(Calendar.YEAR)}-${tCal.get(Calendar.DAY_OF_YEAR)}"
             if (dow == Calendar.SATURDAY || dow == Calendar.SUNDAY) {
-                weekendSum += txn.transaction.amount
+                wSum += txn.transaction.amount
                 if (seenDays.add("W$dayKey")) weekendDays++
             } else {
-                weekdaySum += txn.transaction.amount
+                dSum += txn.transaction.amount
                 if (seenDays.add("D$dayKey")) weekdayDays++
             }
         }
-        val avgWeekend = if (weekendDays > 0) weekendSum / weekendDays else 0.0
-        val avgWeekday = if (weekdayDays > 0) weekdaySum / weekdayDays else 1.0
+        val avgWeekend = if (weekendDays > 0) wSum / weekendDays else 0.0
+        val avgWeekday = if (weekdayDays > 0) dSum / weekdayDays else 1.0
         if (avgWeekday > 0) (((avgWeekend - avgWeekday) / avgWeekday) * 100).toInt() else 0
     }
 
+    var showWeekendDrillDown by remember { mutableStateOf(false) }
     var selectedTab by remember { mutableStateOf("MONTH") }
 
     LazyColumn(
@@ -800,11 +817,16 @@ fun InsightsScreen(
                                     // Draw Monthly day-wise curve with gradient fill
                                     val path = Path()
                                     val fillPath = Path()
+                                    val totalMonthDays = totalDaysInMonth.coerceAtLeast(28)
                                     if (daysToDraw.isNotEmpty()) {
+                                        var lastX = 0f
+                                        var lastY = h
                                         daysToDraw.forEachIndexed { index, day ->
                                             val spend = dailySpendMap[day] ?: 0.0
-                                            val x = (index.toFloat() / (daysToDraw.size.coerceAtLeast(2) - 1)) * w
-                                            val y = h - ((spend / maxDisplayVal) * (h * 0.82f)).toFloat() - 10f
+                                            val x = ((day - 1).toFloat() / (totalMonthDays - 1)) * w
+                                            val y = h - ((spend / maxDisplayVal) * (h * 0.78f)).toFloat() - 14f
+                                            lastX = x
+                                            lastY = y
 
                                             if (index == 0) {
                                                 path.moveTo(x, y)
@@ -812,15 +834,15 @@ fun InsightsScreen(
                                             } else {
                                                 val prevDay = daysToDraw[index - 1]
                                                 val prevSpend = dailySpendMap[prevDay] ?: 0.0
-                                                val prevX = ((index - 1).toFloat() / (daysToDraw.size.coerceAtLeast(2) - 1)) * w
-                                                val prevY = h - ((prevSpend / maxDisplayVal) * (h * 0.82f)).toFloat() - 10f
+                                                val prevX = ((prevDay - 1).toFloat() / (totalMonthDays - 1)) * w
+                                                val prevY = h - ((prevSpend / maxDisplayVal) * (h * 0.78f)).toFloat() - 14f
                                                 val cx = (prevX + x) / 2f
                                                 path.cubicTo(cx, prevY, cx, y, x, y)
                                                 fillPath.cubicTo(cx, prevY, cx, y, x, y)
                                             }
                                         }
 
-                                        fillPath.lineTo(w, h)
+                                        fillPath.lineTo(lastX, h)
                                         fillPath.lineTo(0f, h)
                                         fillPath.close()
 
@@ -828,7 +850,7 @@ fun InsightsScreen(
                                         drawPath(
                                             path = fillPath,
                                             brush = Brush.verticalGradient(
-                                                colors = listOf(BrandLime.copy(alpha = 0.25f), Color.Transparent),
+                                                colors = listOf(BrandLime.copy(alpha = 0.28f), Color.Transparent),
                                                 startY = 0f,
                                                 endY = h
                                             )
@@ -843,25 +865,22 @@ fun InsightsScreen(
                                         // Interactive Highlight or Peak Point
                                         val activeMarkerDay = touchedDay ?: peakDayEntry?.key
                                         if (activeMarkerDay != null && activeMarkerDay in daysToDraw) {
-                                            val activeIdx = daysToDraw.indexOf(activeMarkerDay)
-                                            if (activeIdx >= 0) {
-                                                val activeSpend = dailySpendMap[activeMarkerDay] ?: 0.0
-                                                val markX = (activeIdx.toFloat() / (daysToDraw.size.coerceAtLeast(2) - 1)) * w
-                                                val markY = h - ((activeSpend / maxDisplayVal) * (h * 0.82f)).toFloat() - 10f
+                                            val activeSpend = dailySpendMap[activeMarkerDay] ?: 0.0
+                                            val markX = ((activeMarkerDay - 1).toFloat() / (totalMonthDays - 1)) * w
+                                            val markY = h - ((activeSpend / maxDisplayVal) * (h * 0.78f)).toFloat() - 14f
 
-                                                if (touchedDay != null) {
-                                                    drawLine(
-                                                        color = BrandLime.copy(alpha = 0.45f),
-                                                        start = Offset(markX, 0f),
-                                                        end = Offset(markX, h),
-                                                        strokeWidth = 1.5.dp.toPx()
-                                                    )
-                                                }
-
-                                                drawCircle(color = Color.White, radius = 6.dp.toPx(), center = Offset(markX, markY))
-                                                drawCircle(color = BrandLime, radius = 4.dp.toPx(), center = Offset(markX, markY))
-                                                drawCircle(color = DarkBackground, radius = 2.dp.toPx(), center = Offset(markX, markY))
+                                            if (touchedDay != null) {
+                                                drawLine(
+                                                    color = BrandLime.copy(alpha = 0.45f),
+                                                    start = Offset(markX, 0f),
+                                                    end = Offset(markX, h),
+                                                    strokeWidth = 1.5.dp.toPx()
+                                                )
                                             }
+
+                                            drawCircle(color = Color.White, radius = 6.dp.toPx(), center = Offset(markX, markY))
+                                            drawCircle(color = BrandLime, radius = 4.dp.toPx(), center = Offset(markX, markY))
+                                            drawCircle(color = DarkBackground, radius = 2.dp.toPx(), center = Offset(markX, markY))
                                         }
                                     }
                                 }
@@ -1078,22 +1097,31 @@ fun InsightsScreen(
                             Text("☕ Small purchases", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
                             Text("${smallPurchases.first} purchases under $currencySymbol 150", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = DarkOnSurfaceVariant)
                             Text("$currencySymbol${"%,.0f".format(smallPurchases.second)}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = DarkOnSurface)
-                            Text("${smallPurchases.third}% of total spending", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = BrandLime)
+                            Text("${smallPurchases.third} of total spending", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = BrandLime)
                         }
                     }
 
-                    // Card 2: Weekend Spending with Bar Chart
+                    // Card 2: Weekend Spending with Bar Chart & 1-Tap Drill Down
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = DarkSurface),
                         border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
-                        modifier = Modifier.weight(1f)
+                        modifier = Modifier
+                            .weight(1f)
+                            .clickable { showWeekendDrillDown = true }
                     ) {
                         Column(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(6.dp)
                         ) {
-                            Text("📅 Weekend spending", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("📅 Weekend spending", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
+                                Text("Details >", style = MaterialTheme.typography.labelSmall.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold), color = BrandLime)
+                            }
                             Text("You spend $weekendStats% more on weekends", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = DarkOnSurfaceVariant)
 
                             // 7-day bar chart — computed from real transactions
@@ -1148,7 +1176,7 @@ fun InsightsScreen(
                     }
                 }
 
-                // Row 2 of Spending Patterns (Payment Methods & Average Ticket)
+                // Row 2 of Spending Patterns (Payment Modes & Average Spend)
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
@@ -1171,7 +1199,7 @@ fun InsightsScreen(
                         }
                     }
 
-                    // Card 4: Ticket Size
+                    // Card 4: Average Spend (Renamed from Average Ticket)
                     Card(
                         shape = RoundedCornerShape(16.dp),
                         colors = CardDefaults.cardColors(containerColor = DarkSurface),
@@ -1182,8 +1210,8 @@ fun InsightsScreen(
                             modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(4.dp)
                         ) {
-                            Text("🎟️ Average Ticket", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
-                            Text("Average spend / transaction", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = DarkOnSurfaceVariant)
+                            Text("🎟️ Average Spend", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = DarkOnSurface)
+                            Text("Average spend / expense", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = DarkOnSurfaceVariant)
                             Text("$currencySymbol${"%,.0f".format(avgTicketSize.toDouble())}", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold), color = Color(0xFFA855F7))
                             Text("Consistent pace", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = BrandLime)
                         }
@@ -1246,7 +1274,7 @@ fun InsightsScreen(
                             ) {
                                 Text("•", color = Color(0xFFF59E0B), fontWeight = FontWeight.Bold)
                                 Text(
-                                    text = "${smallPurchases.first} micro-purchases under $currencySymbol 150 accumulated to $currencySymbol${"%,.0f".format(smallPurchases.second)} (${smallPurchases.third}% of budget).",
+                                    text = "${smallPurchases.first} micro-purchases under $currencySymbol 150 accumulated to $currencySymbol${"%,.0f".format(smallPurchases.second)} (${smallPurchases.third} of budget).",
                                     style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.5.sp),
                                     color = DarkOnSurfaceVariant
                                 )
@@ -1305,6 +1333,15 @@ fun InsightsScreen(
         }
     }
 
+    if (showWeekendDrillDown) {
+        WeekendSpendingDrillDownSheet(
+            weekendTransactions = weekendTransactions,
+            totalWeekendSum = weekendSum,
+            currencySymbol = currencySymbol,
+            onDismiss = { showWeekendDrillDown = false }
+        )
+    }
+
     if (showWhatChangedSheet) {
         WhatChangedDetailSheet(
             categoryChanges = categoryChanges,
@@ -1319,6 +1356,212 @@ fun InsightsScreen(
             currencySymbol = currencySymbol,
             onDismiss = { showWeeklyStoryModal = false }
         )
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun WeekendSpendingDrillDownSheet(
+    weekendTransactions: List<TransactionWithCategory>,
+    totalWeekendSum: Double,
+    currencySymbol: String,
+    onDismiss: () -> Unit
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    val totalTxns = weekendTransactions.size
+    val saturdaySpends = weekendTransactions.filter {
+        val cal = Calendar.getInstance().apply { timeInMillis = it.transaction.timestamp }
+        cal.get(Calendar.DAY_OF_WEEK) == Calendar.SATURDAY
+    }.sumOf { it.transaction.amount }
+    val sundaySpends = weekendTransactions.filter {
+        val cal = Calendar.getInstance().apply { timeInMillis = it.transaction.timestamp }
+        cal.get(Calendar.DAY_OF_WEEK) == Calendar.SUNDAY
+    }.sumOf { it.transaction.amount }
+
+    val categoryBreakdown = remember(weekendTransactions) {
+        weekendTransactions.groupBy { it.category?.name ?: "General" }
+            .mapValues { entry -> entry.value.sumOf { it.transaction.amount } }
+            .toList()
+            .sortedByDescending { it.second }
+    }
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+        containerColor = DarkSurface,
+        dragHandle = {
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 10.dp)
+                    .width(40.dp)
+                    .height(4.dp)
+                    .clip(CircleShape)
+                    .background(DarkBorder)
+            )
+        }
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Text("📅", fontSize = 20.sp)
+                        Text(
+                            text = "Weekend Spending Drill-Down",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+                            color = DarkOnSurface
+                        )
+                    }
+                    Text(
+                        text = "Saturdays & Sundays breakdown this month",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DarkOnSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onDismiss) {
+                    Icon(Icons.Default.Close, contentDescription = "Close", tint = DarkOnSurfaceVariant)
+                }
+            }
+
+            // Summary Card
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = DarkSurfaceVariant.copy(alpha = 0.6f),
+                border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Column {
+                        Text("Total Weekend Spends", style = MaterialTheme.typography.labelSmall, color = DarkOnSurfaceVariant)
+                        Text(
+                            "$currencySymbol${"%,.0f".format(totalWeekendSum)}",
+                            style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Black),
+                            color = BrandLime
+                        )
+                        Text("$totalTxns transactions", style = MaterialTheme.typography.labelSmall, color = DarkOnSurfaceVariant)
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text("Sat: $currencySymbol${"%,.0f".format(saturdaySpends)}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = DarkOnSurface)
+                        Text("Sun: $currencySymbol${"%,.0f".format(sundaySpends)}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.SemiBold), color = DarkOnSurface)
+                    }
+                }
+            }
+
+            // Top Weekend Categories
+            if (categoryBreakdown.isNotEmpty()) {
+                Text(
+                    text = "Top Weekend Categories",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = DarkOnSurface
+                )
+                Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    categoryBreakdown.take(4).forEach { (catName, amount) ->
+                        val pct = if (totalWeekendSum > 0) ((amount / totalWeekendSum) * 100).toInt() else 0
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Text(getCategoryEmoji(catName), fontSize = 14.sp)
+                                    Text(catName, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), color = DarkOnSurface)
+                                }
+                                Text(
+                                    "$currencySymbol${"%,.0f".format(amount)} ($pct%)",
+                                    style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold),
+                                    color = DarkOnSurface
+                                )
+                            }
+                            LinearProgressIndicator(
+                                progress = { (pct / 100f).coerceIn(0f, 1f) },
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(4.dp)
+                                    .clip(CircleShape),
+                                color = BrandLime,
+                                trackColor = DarkSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            // All Weekend Transactions
+            if (weekendTransactions.isNotEmpty()) {
+                Text(
+                    text = "Weekend Spends (${weekendTransactions.size})",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = DarkOnSurface
+                )
+                LazyColumn(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .heightIn(max = 240.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(weekendTransactions.sortedByDescending { it.transaction.timestamp }) { item ->
+                        val dateStr = java.text.SimpleDateFormat("EEE, d MMM", Locale.getDefault()).format(Date(item.transaction.timestamp))
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = DarkSurfaceVariant.copy(alpha = 0.4f),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(getCategoryEmoji(item.category?.name), fontSize = 16.sp)
+                                    Column {
+                                        Text(
+                                            text = item.transaction.merchant,
+                                            style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
+                                            color = DarkOnSurface
+                                        )
+                                        Text(
+                                            text = "$dateStr • ${item.category?.name ?: "General"}",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                            color = DarkOnSurfaceVariant
+                                        )
+                                    }
+                                }
+                                Text(
+                                    text = "-$currencySymbol${"%,.0f".format(item.transaction.amount)}",
+                                    style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
+                                    color = DarkOnSurface
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

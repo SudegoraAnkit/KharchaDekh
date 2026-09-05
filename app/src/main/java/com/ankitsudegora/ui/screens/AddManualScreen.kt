@@ -1,9 +1,8 @@
 package com.ankitsudegora.ui.screens
 
 import android.app.DatePickerDialog
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.shrinkVertically
+import androidx.compose.animation.*
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -89,11 +88,25 @@ fun AddManualScreen(
     var showAllCategoriesModal by remember { mutableStateOf(false) }
     var showAddCardDialog by remember { mutableStateOf(false) }
 
-    // Pre-select first category if none selected
-    LaunchedEffect(categories) {
-        if (selectedCategoryId == null && categories.isNotEmpty()) {
-            selectedCategoryId = categories.first().id
-        }
+    val txnCal = remember(timestamp) { Calendar.getInstance().apply { timeInMillis = timestamp } }
+    val hour = txnCal.get(Calendar.HOUR_OF_DAY)
+    val isWeekday = txnCal.get(Calendar.DAY_OF_WEEK) in Calendar.MONDAY..Calendar.FRIDAY
+    val isLunchWindow = isWeekday && hour in 12..14
+
+    // Find learned merchant name from past weekday lunch spends (e.g. Office Canteen)
+    val learnedLunchMerchant = remember(allTransactions, isLunchWindow) {
+        if (isLunchWindow) {
+            val pastLunchTxns = allTransactions.filter { item ->
+                val cal = Calendar.getInstance().apply { timeInMillis = item.transaction.timestamp }
+                val h = cal.get(Calendar.HOUR_OF_DAY)
+                val w = cal.get(Calendar.DAY_OF_WEEK) in Calendar.MONDAY..Calendar.FRIDAY
+                w && h in 12..14 && item.transaction.type == "DEBIT" && !item.transaction.isPending &&
+                        !item.transaction.merchant.startsWith("Manual", ignoreCase = true)
+            }
+            pastLunchTxns.groupBy { it.transaction.merchant }
+                .maxByOrNull { it.value.size }?.key
+                ?: "Office Canteen"
+        } else null
     }
 
     // Auto-select first credit card if available (M5)
@@ -103,26 +116,39 @@ fun AddManualScreen(
         }
     }
 
-    // Top 3 suggested categories based on merchant matching or common usage (C4)
-    val topSuggestedCategories = remember(categories, merchant, allTransactions) {
+    // Top 3 suggested categories based on merchant matching, temporal context, and common usage
+    val topSuggestedCategories = remember(categories, merchant, allTransactions, isLunchWindow) {
+        val nonOtherCategories = categories.filter { !it.name.equals("Others", ignoreCase = true) }
+        val foodCat = nonOtherCategories.find { it.name.contains("Food", ignoreCase = true) || it.name.contains("Dining", ignoreCase = true) }
+
         val matched = if (merchant.isNotBlank()) {
             val q = merchant.lowercase()
-            // Check past merchant usage first
             val pastCategory = allTransactions
                 .filter { it.transaction.merchant.contains(q, ignoreCase = true) }
                 .mapNotNull { it.category }
                 .distinctBy { it.id }
 
-            val keywordMatched = categories.filter { cat ->
+            val keywordMatched = nonOtherCategories.filter { cat ->
                 cat.name.lowercase().contains(q) ||
-                        ((q.contains("swiggy") || q.contains("zomato")) && cat.name.contains("Food", ignoreCase = true)) ||
-                        ((q.contains("bazaar") || q.contains("mart") || q.contains("grocery")) && cat.name.contains("Groceries", ignoreCase = true)) ||
-                        ((q.contains("uber") || q.contains("ola")) && cat.name.contains("Travel", ignoreCase = true))
+                        ((q.contains("swiggy") || q.contains("zomato") || q.contains("canteen") || q.contains("lunch") || q.contains("mess") || q.contains("dhaba") || q.contains("food")) && cat.name.contains("Food", ignoreCase = true)) ||
+                        ((q.contains("bazaar") || q.contains("mart") || q.contains("grocery") || q.contains("kirana") || q.contains("blinkit") || q.contains("zepto") || q.contains("instamart")) && cat.name.contains("Groceries", ignoreCase = true)) ||
+                        ((q.contains("uber") || q.contains("ola") || q.contains("rapido") || q.contains("metro") || q.contains("petrol") || q.contains("fuel")) && cat.name.contains("Travel", ignoreCase = true)) ||
+                        ((q.contains("chai") || q.contains("tea") || q.contains("coffee")) && cat.name.contains("Food", ignoreCase = true))
             }
             (pastCategory + keywordMatched).distinctBy { it.id }
+        } else if (isLunchWindow && foodCat != null) {
+            listOf(foodCat)
         } else emptyList()
 
-        (matched + categories).distinctBy { it.id }.take(3)
+        val list = (matched + nonOtherCategories).distinctBy { it.id }.take(3)
+        if (list.isEmpty()) categories.take(3) else list
+    }
+
+    // Auto-select the top suggested category (never default to Others)
+    LaunchedEffect(topSuggestedCategories) {
+        if (selectedCategoryId == null && topSuggestedCategories.isNotEmpty()) {
+            selectedCategoryId = topSuggestedCategories.first().id
+        }
     }
 
     // Validation & Save Handler
@@ -451,6 +477,52 @@ fun AddManualScreen(
                 }
             }
 
+            // Contextual 1–2 PM Weekday Lunch Suggestion Chip
+            AnimatedVisibility(
+                visible = isLunchWindow && merchant.isBlank() && learnedLunchMerchant != null,
+                enter = expandVertically() + fadeIn(),
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = BrandLime.copy(alpha = 0.12f),
+                    border = androidx.compose.foundation.BorderStroke(1.dp, BrandLime.copy(alpha = 0.35f)),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            merchant = learnedLunchMerchant ?: "Office Canteen"
+                            val foodCat = categories.find { it.name.contains("Food", ignoreCase = true) || it.name.contains("Dining", ignoreCase = true) }
+                            if (foodCat != null) selectedCategoryId = foodCat.id
+                        }
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Text("🍽️", fontSize = 16.sp)
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text(
+                                text = "1–2 PM Lunch Slot Detected",
+                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                color = BrandLime
+                            )
+                            Text(
+                                text = "Tap to set \"$learnedLunchMerchant\" & Food category",
+                                style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                                color = DarkOnSurfaceVariant
+                            )
+                        }
+                        Icon(
+                            imageVector = Icons.Default.Add,
+                            contentDescription = null,
+                            tint = BrandLime,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+
             // 3. Suggested Category (Top 3 Matches + More Pill)
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                 Text(
@@ -468,13 +540,19 @@ fun AddManualScreen(
                         val isSelected = selectedCategoryId == cat.id
                         val matchPct = matchPcts.getOrElse(idx) { 50 }
 
+                        val borderColor by animateColorAsState(
+                            targetValue = if (isSelected) BrandLime else DarkBorder,
+                            animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                        )
+                        val iconBgColor by animateColorAsState(
+                            targetValue = if (isSelected) BrandLime.copy(alpha = 0.2f) else DarkSurfaceVariant,
+                            animationSpec = spring(stiffness = Spring.StiffnessMedium)
+                        )
+
                         Surface(
                             shape = RoundedCornerShape(16.dp),
                             color = if (isSelected) DarkSurface else DarkSurfaceVariant.copy(alpha = 0.5f),
-                            border = androidx.compose.foundation.BorderStroke(
-                                1.5.dp,
-                                if (isSelected) BrandLime else DarkBorder
-                            ),
+                            border = androidx.compose.foundation.BorderStroke(1.5.dp, borderColor),
                             modifier = Modifier
                                 .weight(1f)
                                 .clickable { selectedCategoryId = cat.id }
@@ -489,9 +567,7 @@ fun AddManualScreen(
                                     modifier = Modifier
                                         .size(36.dp)
                                         .clip(CircleShape)
-                                        .background(
-                                            if (isSelected) BrandLime.copy(alpha = 0.2f) else DarkSurfaceVariant
-                                        ),
+                                        .background(iconBgColor),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(

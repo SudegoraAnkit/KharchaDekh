@@ -1,5 +1,6 @@
 package com.ankitsudegora.ui.screens
 
+import androidx.compose.animation.*
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -27,12 +28,14 @@ import com.ankitsudegora.data.Category
 import com.ankitsudegora.data.Transaction
 import com.ankitsudegora.data.TransactionWithCategory
 import com.ankitsudegora.ui.components.getCurrencySymbol
+import com.ankitsudegora.ui.components.TransactionListItem
 import com.ankitsudegora.ui.theme.*
 
 @Composable
 fun ActivityScreen(
     allTransactions: List<TransactionWithCategory>,
     categories: List<Category>,
+    monthlyIncome: Double = 0.0,
     billingCycleStartDay: Int,
     onEnrichTransaction: (Long) -> Unit,
     onDeleteTransaction: (Transaction) -> Unit,
@@ -46,9 +49,13 @@ fun ActivityScreen(
     val currencySymbol = remember(primaryCurrency) { getCurrencySymbol(primaryCurrency) }
     var showExportFilterModal by remember { mutableStateOf(false) }
 
-    val cal = remember { java.util.Calendar.getInstance() }
-    val thisMonth = remember { cal.get(java.util.Calendar.MONTH) }
-    val thisYear = remember { cal.get(java.util.Calendar.YEAR) }
+    val now = remember { System.currentTimeMillis() }
+    val cycleRange = remember(billingCycleStartDay, now) {
+        getBillingCycleRange(billingCycleStartDay, 0, now)
+    }
+    val prevCycleRange = remember(billingCycleStartDay, now) {
+        getBillingCycleRange(billingCycleStartDay, -1, now)
+    }
 
     var selectedTypeFilter by remember { mutableStateOf("ALL") } // ALL, DEBIT, CREDIT, TRANSFER, REFUND
     var collapsedDays by remember { mutableStateOf(setOf<String>()) }
@@ -68,30 +75,25 @@ fun ActivityScreen(
         }
     }
 
-    // This month vs last month transactions for dynamic MoM metrics
-    val (thisMonthTxns, lastMonthTxns) = remember(nonPendingTxns, thisMonth, thisYear) {
-        val thisM = mutableListOf<TransactionWithCategory>()
-        val lastM = mutableListOf<TransactionWithCategory>()
-        val lastMonthIdx = if (thisMonth == 0) 11 else thisMonth - 1
-        val lastMonthYear = if (thisMonth == 0) thisYear - 1 else thisYear
-
-        nonPendingTxns.forEach { txn ->
-            val tCal = java.util.Calendar.getInstance().apply { timeInMillis = txn.transaction.timestamp }
-            val m = tCal.get(java.util.Calendar.MONTH)
-            val y = tCal.get(java.util.Calendar.YEAR)
-            if (m == thisMonth && y == thisYear) thisM.add(txn)
-            else if (m == lastMonthIdx && y == lastMonthYear) lastM.add(txn)
-        }
+    // This billing cycle vs last billing cycle transactions for dynamic MoM metrics
+    val (thisMonthTxns, lastMonthTxns) = remember(nonPendingTxns, cycleRange, prevCycleRange) {
+        val thisM = nonPendingTxns.filter { it.transaction.timestamp >= cycleRange.first && it.transaction.timestamp < cycleRange.second }
+        val lastM = nonPendingTxns.filter { it.transaction.timestamp >= prevCycleRange.first && it.transaction.timestamp < prevCycleRange.second }
         Pair(thisM, lastM)
+    }
+
+    fun isCCRepayment(txn: TransactionWithCategory): Boolean {
+        val cat = txn.category?.name ?: ""
+        return cat.contains("CreditCard", ignoreCase = true) || cat.contains("Credit Card", ignoreCase = true) || cat.contains("CC Payment", ignoreCase = true)
     }
 
     // Compute 4 Metrics
     val totalSpent = remember(thisMonthTxns) {
-        thisMonthTxns.filter { it.transaction.type.equals("DEBIT", ignoreCase = true) }
+        thisMonthTxns.filter { it.transaction.type.equals("DEBIT", ignoreCase = true) && !isCCRepayment(it) }
             .sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
     }
     val lastMonthSpent = remember(lastMonthTxns) {
-        lastMonthTxns.filter { it.transaction.type.equals("DEBIT", ignoreCase = true) }
+        lastMonthTxns.filter { it.transaction.type.equals("DEBIT", ignoreCase = true) && !isCCRepayment(it) }
             .sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
     }
     val momSpentPct = remember(totalSpent, lastMonthSpent) {
@@ -99,19 +101,59 @@ fun ActivityScreen(
     }
 
     val totalIncome = remember(thisMonthTxns) {
-        thisMonthTxns.filter { it.transaction.type.equals("CREDIT", ignoreCase = true) }
+        thisMonthTxns.filter { (it.transaction.type.equals("CREDIT", ignoreCase = true) || it.transaction.type.equals("REFUND", ignoreCase = true)) && !isCCRepayment(it) }
             .sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
     }
     val lastMonthIncome = remember(lastMonthTxns) {
-        lastMonthTxns.filter { it.transaction.type.equals("CREDIT", ignoreCase = true) }
+        lastMonthTxns.filter { (it.transaction.type.equals("CREDIT", ignoreCase = true) || it.transaction.type.equals("REFUND", ignoreCase = true)) && !isCCRepayment(it) }
             .sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
     }
     val momIncomePct = remember(totalIncome, lastMonthIncome) {
         if (lastMonthIncome > 0) (((totalIncome - lastMonthIncome) / lastMonthIncome) * 100).toInt() else 0
     }
 
-    val netBalance = totalIncome - totalSpent
+    val allTimeIncome = remember(nonPendingTxns) {
+        nonPendingTxns.filter { (it.transaction.type.equals("CREDIT", ignoreCase = true) || it.transaction.type.equals("REFUND", ignoreCase = true)) && !isCCRepayment(it) }
+            .sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
+    }
+    val allTimeSpent = remember(nonPendingTxns) {
+        nonPendingTxns.filter { it.transaction.type.equals("DEBIT", ignoreCase = true) && !isCCRepayment(it) }
+            .sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
+    }
+
+    val effectiveBudget = remember(monthlyIncome, categories) {
+        if (monthlyIncome > 0.0) monthlyIncome
+        else {
+            val sumCat = categories.sumOf { it.budgetLimit ?: 0.0 }
+            if (sumCat > 0.0) sumCat else 0.0
+        }
+    }
+
+    // Net Balance: Budget - Spent this cycle (or Income - Spent if no budget configured)
+    val netBalance = remember(effectiveBudget, totalSpent, totalIncome) {
+        if (effectiveBudget > 0.0) {
+            effectiveBudget - totalSpent
+        } else if (totalIncome > 0.0) {
+            totalIncome - totalSpent
+        } else {
+            -totalSpent
+        }
+    }
     val totalCount = thisMonthTxns.size
+
+    var showFactBanner by remember { mutableStateOf(true) }
+    val microFactText = remember(thisMonthTxns, totalSpent, totalIncome) {
+        val weekendSpent = thisMonthTxns.filter {
+            val cal = java.util.Calendar.getInstance().apply { timeInMillis = it.transaction.timestamp }
+            val day = cal.get(java.util.Calendar.DAY_OF_WEEK)
+            (day == java.util.Calendar.SATURDAY || day == java.util.Calendar.SUNDAY) && it.transaction.type == "DEBIT"
+        }.sumOf { onConvertAmount(it.transaction.amount, it.transaction.currency) }
+        val weekendPct = if (totalSpent > 0) ((weekendSpent / totalSpent) * 100).toInt() else 0
+
+        if (weekendPct > 20) "💡 Fact: Weekend spends make up $weekendPct% of your monthly expenses."
+        else if (totalIncome > totalSpent && totalSpent > 0) "💡 Fact: You've saved ${((totalIncome - totalSpent) / totalIncome * 100).toInt()}% of your monthly earnings."
+        else "💡 Tip: Categorizing cash spends keeps your monthly insights 100% accurate."
+    }
 
     // Group transactions by day
     val groupedByDay = remember(filteredTxns) {
@@ -193,7 +235,7 @@ fun ActivityScreen(
                         )
                     }
 
-                    // Filter / Export Action
+                    // Download / Export Action (Download icon replaces filter list)
                     IconButton(
                         onClick = { showExportFilterModal = true },
                         modifier = Modifier
@@ -202,8 +244,8 @@ fun ActivityScreen(
                             .background(DarkSurfaceVariant)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.FilterList,
-                            contentDescription = "Filter",
+                            imageVector = Icons.Default.FileDownload,
+                            contentDescription = "Export & Download",
                             tint = DarkOnSurface,
                             modifier = Modifier.size(18.dp)
                         )
@@ -223,6 +265,45 @@ fun ActivityScreen(
                             tint = DarkBackground,
                             modifier = Modifier.size(20.dp)
                         )
+                    }
+                }
+            }
+
+            // Non-intrusive Micro Financial Fact Banner
+            AnimatedVisibility(
+                visible = showFactBanner,
+                exit = shrinkVertically() + fadeOut()
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = DarkSurface,
+                    border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 10.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Text(
+                            text = microFactText,
+                            style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp),
+                            color = DarkOnSurfaceVariant,
+                            modifier = Modifier.weight(1f)
+                        )
+                        IconButton(
+                            onClick = { showFactBanner = false },
+                            modifier = Modifier.size(20.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Close,
+                                contentDescription = "Dismiss",
+                                tint = DarkOnSurfaceVariant,
+                                modifier = Modifier.size(14.dp)
+                            )
+                        }
                     }
                 }
             }
@@ -315,7 +396,7 @@ fun ActivityScreen(
                         ) {
                             Text("Net Balance", style = MaterialTheme.typography.labelSmall, color = DarkOnSurfaceVariant)
                             Text(
-                                text = "$currencySymbol${"%,.0f".format(netBalance)}",
+                                text = "${if (netBalance < 0) "-" else ""}$currencySymbol${"%,.0f".format(kotlin.math.abs(netBalance))}",
                                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold),
                                 color = if (netBalance >= 0) BrandLime else Color(0xFFEF4444)
                             )
@@ -324,8 +405,15 @@ fun ActivityScreen(
                                 horizontalArrangement = Arrangement.SpaceBetween,
                                 verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text("Remaining", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = DarkOnSurfaceVariant)
-                                Text("👛", fontSize = 11.sp)
+                                val subText = if (effectiveBudget > 0.0) {
+                                    if (netBalance >= 0) "Remaining of $currencySymbol${"%,.0f".format(effectiveBudget)}" else "Over by $currencySymbol${"%,.0f".format(kotlin.math.abs(netBalance))}"
+                                } else if (totalIncome > 0.0) {
+                                    if (netBalance >= 0) "+$currencySymbol${"%,.0f".format(netBalance)} saved" else "-$currencySymbol${"%,.0f".format(kotlin.math.abs(netBalance))} over"
+                                } else {
+                                    "Net Outflow"
+                                }
+                                Text(subText, style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp), color = DarkOnSurfaceVariant)
+                                Text(if (netBalance >= 0) "👛" else "⚠️", fontSize = 11.sp)
                             }
                         }
                     }

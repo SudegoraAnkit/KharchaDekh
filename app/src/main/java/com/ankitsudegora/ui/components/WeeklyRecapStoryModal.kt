@@ -579,7 +579,7 @@ private fun SlideTopCategory(data: WeeklyRecapData, currencySymbol: String) {
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center
     ) {
-        Text("🍔", fontSize = 54.sp)
+        Text(getCategoryEmoji(data.topCategoryName), fontSize = 54.sp)
         Spacer(modifier = Modifier.height(16.dp))
         Text(
             text = "Top Spending Category",

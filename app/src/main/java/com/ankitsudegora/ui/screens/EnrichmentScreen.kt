@@ -657,48 +657,76 @@ fun EnrichmentScreen(
                         }
                     }
 
-                    // RuPay Credit Card on UPI Smart Link
-                    if (paymentMethod.equals("UPI", ignoreCase = true) && creditCards.isNotEmpty()) {
+                    // Credit Card Linking & Switching Row (Supports UPI RuPay & Direct Card)
+                    if (creditCards.isNotEmpty() && (paymentMethod.equals("CARD", ignoreCase = true) || paymentMethod.equals("UPI", ignoreCase = true))) {
                         Surface(
-                            shape = RoundedCornerShape(12.dp),
-                            color = if (selectedCcId != null) BrandLimeContainer.copy(alpha = 0.35f) else DarkSurfaceVariant.copy(alpha = 0.6f),
-                            border = androidx.compose.foundation.BorderStroke(1.dp, if (selectedCcId != null) BrandLime else DarkBorder),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clickable {
-                                    if (selectedCcId != null) selectedCcId = null
-                                    else selectedCcId = creditCards.first().id
-                                }
+                            shape = RoundedCornerShape(14.dp),
+                            color = if (selectedCcId != null) BrandLimeContainer.copy(alpha = 0.25f) else DarkSurfaceVariant.copy(alpha = 0.5f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, if (selectedCcId != null) BrandLime.copy(alpha = 0.6f) else DarkBorder),
+                            modifier = Modifier.fillMaxWidth()
                         ) {
-                            Row(
-                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween
+                            Column(
+                                modifier = Modifier.padding(12.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
                                 ) {
-                                    Text("⚡", fontSize = 14.sp)
-                                    Column {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                    ) {
+                                        Text("💳", fontSize = 14.sp)
                                         Text(
-                                            text = if (selectedCcId != null) "Paid via RuPay CC: ${creditCards.find { it.id == selectedCcId }?.cardName}"
-                                            else "Paid using RuPay Credit Card on UPI?",
+                                            text = if (paymentMethod == "UPI") "Link to RuPay Credit Card on UPI" else "Linked Credit Card",
                                             style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                            color = if (selectedCcId != null) BrandOnLimeContainer else DarkOnSurface
+                                            color = DarkOnSurface
                                         )
+                                    }
+                                    if (selectedCcId != null) {
                                         Text(
-                                            text = if (selectedCcId != null) "Linked to Credit Card statement dues"
-                                            else "Tap to link expense to your Credit Card",
-                                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.5.sp),
-                                            color = DarkOnSurfaceVariant
+                                            text = "Unlink",
+                                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color(0xFFEF4444)),
+                                            modifier = Modifier.clickable { selectedCcId = null }
                                         )
                                     }
                                 }
-                                if (selectedCcId != null) {
-                                    Icon(Icons.Default.CheckCircle, contentDescription = "Linked", tint = BrandLime, modifier = Modifier.size(16.dp))
-                                } else {
-                                    Text("Link Card", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = BrandLime))
+
+                                // Card Options Chips (1-tap switch)
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    creditCards.forEach { cc ->
+                                        val isCardSel = selectedCcId == cc.id
+                                        Surface(
+                                            shape = RoundedCornerShape(10.dp),
+                                            color = if (isCardSel) BrandLime else DarkSurface,
+                                            border = androidx.compose.foundation.BorderStroke(1.dp, if (isCardSel) BrandLime else DarkBorder),
+                                            modifier = Modifier.clickable {
+                                                selectedCcId = if (isCardSel && paymentMethod != "CARD") null else cc.id
+                                            }
+                                        ) {
+                                            Row(
+                                                modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                            ) {
+                                                Text(
+                                                    text = cc.cardName,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = if (isCardSel) DarkBackground else DarkOnSurface
+                                                )
+                                                if (isCardSel) {
+                                                    Icon(Icons.Default.Check, null, tint = DarkBackground, modifier = Modifier.size(12.dp))
+                                                }
+                                            }
+                                        }
+                                    }
                                 }
                             }
                         }

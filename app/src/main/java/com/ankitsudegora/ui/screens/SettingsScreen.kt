@@ -362,7 +362,7 @@ fun SettingsScreen(
                         icon = Icons.AutoMirrored.Filled.Article,
                         iconTint = Color(0xFF10B981),
                         title = "What's New",
-                        subtitle = "Version 2.0 (19) Release Notes",
+                        subtitle = "Version 2.0.0.1 (Build 23) Release Notes",
                         badge = "NEW",
                         onClick = { showWhatsNewDialog = true }
                     )
@@ -371,7 +371,7 @@ fun SettingsScreen(
                         icon = Icons.Default.Info,
                         iconTint = Color(0xFF10B981),
                         title = "About KharchaDekh",
-                        subtitle = "v2.0.0.0 • Offline First Finance",
+                        subtitle = "v2.0.0.1 (Build 23) • Offline First Finance",
                         onClick = { showAboutDialog = true }
                     )
                 }
@@ -499,20 +499,93 @@ fun SettingsScreen(
         )
     }
 
-    // Dialog: Budget Settings
+    // Dialog: Smart Budget Advisor
     if (showBudgetDialog) {
         var budgetInput by remember { mutableStateOf(if (monthlyIncome > 0) monthlyIncome.toInt().toString() else "30000") }
+        val currentCap = budgetInput.toDoubleOrNull() ?: 30000.0
+        val conservativeCap = (currentCap * 0.9).toInt()
+        val flexibleCap = (currentCap * 1.15).toInt()
+
         AlertDialog(
             onDismissRequest = { showBudgetDialog = false },
-            title = { Text("Monthly Budget Limit", fontWeight = FontWeight.Bold) },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Text("🎯", fontSize = 20.sp)
+                    Text("Smart Monthly Budget Advisor", fontWeight = FontWeight.Bold)
+                }
+            },
             text = {
-                OutlinedTextField(
-                    value = budgetInput,
-                    onValueChange = { budgetInput = it },
-                    label = { Text("Target Spend Cap (${getCurrencySymbol(primaryCurrency)})") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Set your total monthly target spend cap. Choose a smart strategy or enter a custom amount:",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = DarkOnSurfaceVariant
+                    )
+
+                    OutlinedTextField(
+                        value = budgetInput,
+                        onValueChange = { budgetInput = it },
+                        label = { Text("Target Spend Cap (${getCurrencySymbol(primaryCurrency)})") },
+                        singleLine = true,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    Text(
+                        text = "1-Tap Strategy Recommendations:",
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = DarkOnSurface
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        // 1. Conservative (-10%)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = BrandLimeContainer.copy(alpha = 0.4f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, BrandLime.copy(alpha = 0.5f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { budgetInput = conservativeCap.toString() }
+                        ) {
+                            Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🟢 Save 10%", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = BrandLime)
+                                Text("${getCurrencySymbol(primaryCurrency)}$conservativeCap", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 10.sp), color = DarkOnSurface)
+                            }
+                        }
+
+                        // 2. Realistic (Current)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = DarkSurfaceVariant,
+                            border = androidx.compose.foundation.BorderStroke(1.dp, DarkBorder),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { if (monthlyIncome > 0) budgetInput = monthlyIncome.toInt().toString() }
+                        ) {
+                            Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🟡 Steady", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFFF59E0B))
+                                Text("${getCurrencySymbol(primaryCurrency)}${if (monthlyIncome > 0) monthlyIncome.toInt() else 30000}", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 10.sp), color = DarkOnSurface)
+                            }
+                        }
+
+                        // 3. Flexible (+15%)
+                        Surface(
+                            shape = RoundedCornerShape(8.dp),
+                            color = Color(0xFF38BDF8).copy(alpha = 0.15f),
+                            border = androidx.compose.foundation.BorderStroke(1.dp, Color(0xFF38BDF8).copy(alpha = 0.4f)),
+                            modifier = Modifier
+                                .weight(1f)
+                                .clickable { budgetInput = flexibleCap.toString() }
+                        ) {
+                            Column(modifier = Modifier.padding(6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("🔵 Flexible", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, fontWeight = FontWeight.Bold), color = Color(0xFF38BDF8))
+                                Text("${getCurrencySymbol(primaryCurrency)}$flexibleCap", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.ExtraBold, fontSize = 10.sp), color = DarkOnSurface)
+                            }
+                        }
+                    }
+                }
             },
             confirmButton = {
                 Button(
@@ -523,7 +596,7 @@ fun SettingsScreen(
                     },
                     colors = ButtonDefaults.buttonColors(containerColor = BrandLime, contentColor = DarkBackground)
                 ) {
-                    Text("Save", fontWeight = FontWeight.Bold)
+                    Text("Apply Budget", fontWeight = FontWeight.Bold)
                 }
             },
             dismissButton = { TextButton(onClick = { showBudgetDialog = false }) { Text("Cancel", color = DarkOnSurfaceVariant) } },
@@ -616,14 +689,14 @@ fun SettingsScreen(
     if (showWhatsNewDialog) {
         AlertDialog(
             onDismissRequest = { showWhatsNewDialog = false },
-            title = { Text("What's New in v2.0", fontWeight = FontWeight.Bold) },
+            title = { Text("What's New in v2.0.0.1 (Build 23)", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("• Low-Friction 1-Tap Expense Review & Entry", style = MaterialTheme.typography.bodyMedium)
-                    Text("• Credit Card Accumulated Dues & Statement Tracking", style = MaterialTheme.typography.bodyMedium)
-                    Text("• Dynamic Time-Aware Greetings (Morning, Afternoon, Evening, Night)", style = MaterialTheme.typography.bodyMedium)
-                    Text("• Interactive Spending Overview Bezier Line Charts", style = MaterialTheme.typography.bodyMedium)
-                    Text("• 100% Offline & On-Device Financial Security", style = MaterialTheme.typography.bodyMedium)
+                    Text("• 💳 Enhanced Credit Card Hub: In-place card editing, dynamic ledger dues & RuPay UPI tracking.", style = MaterialTheme.typography.bodyMedium)
+                    Text("• 🔒 Privacy First: Zero sensitive info taken—only card nickname & last 4 digits.", style = MaterialTheme.typography.bodyMedium)
+                    Text("• 📊 Weekly Recap Stories: Interactive Monday financial wrap-up.", style = MaterialTheme.typography.bodyMedium)
+                    Text("• 🍽️ Context-Aware Predictions: Smart 1–2 PM lunch & merchant learning.", style = MaterialTheme.typography.bodyMedium)
+                    Text("• ⚡ Performance improvements & UI polish.", style = MaterialTheme.typography.bodyMedium)
                 }
             },
             confirmButton = { TextButton(onClick = { showWhatsNewDialog = false }) { Text("Awesome!", color = BrandLime) } },
@@ -638,7 +711,7 @@ fun SettingsScreen(
             title = { Text("About KharchaDekh", fontWeight = FontWeight.Bold) },
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("KharchaDekh Version 2.0.0.0 (Build 19)", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
+                    Text("KharchaDekh Version 2.0.0.1 (Build 23)", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold))
                     Text("Offline-first expense tracking and AI-assisted financial clarity built for India.", style = MaterialTheme.typography.bodySmall, color = DarkOnSurfaceVariant)
                 }
             },
